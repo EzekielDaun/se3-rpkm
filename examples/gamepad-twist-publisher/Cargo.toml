@@ -1,0 +1,9 @@
+[package]
+    edition = "2024"
+    name    = "gamepad-twist-publisher"
+    version = "0.1.0"
+
+[dependencies]
+    anyhow   = "^1"
+    gilrs    = "0.11.0"
+    iceoryx2 = "0.7.0"

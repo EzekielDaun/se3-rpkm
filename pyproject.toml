@@ -1,0 +1,44 @@
+[project]
+    authors = [
+        { name = "Yifei Liu", email = "34564223+EzekielDaun@users.noreply.github.com" },
+    ]
+    dependencies = ["jax", "jaxlie", "jaxtyping", "optimistix"]
+    description = "Add your description here"
+    name = "se3-rpkm"
+    readme = "README.md"
+    requires-python = ">=3.10, <3.14"
+    version = "0.1.0"
+
+[project.optional-dependencies]
+    dev = ["iceoryx2==0.7.0", "mujoco-mjx>=3.3.7,<4.0.0", "warp-lang"]
+
+[build-system]
+    build-backend = "uv_build"
+    requires      = ["uv_build>=0.9.14,<0.10.0"]
+
+[tool.pixi.workspace]
+    channels  = ["conda-forge"]
+    platforms = ["linux-64", "linux-aarch64", "osx-arm64", "win-64"]
+
+[tool.pixi.pypi-dependencies]
+    se3-rpkm = { path = ".", editable = true }
+
+[tool.pixi.environments]
+    dev = { features = ["dev"], solve-group = "default" }
+
+[tool.pixi.feature.dev.dependencies]
+    rust = ">=1.81"
+
+[tool.pixi.feature.dev.tasks]
+    # Twist publishers
+    gamepad-twist-publisher  = "cd examples/gamepad-twist-publisher && cargo run --release"
+    keyboard-twist-publisher = "cd examples/keyboard-twist-publisher && cargo run --release"
+    # Mujoco examples
+    se3so23-sr-platform-basic-continuous = "python examples/se3so23_sr_platform_basic_continuous.py"
+    se3so23-sr-platform-rrr-serial       = "python examples/se3so23_sr_platform_rrr_serial.py"
+    se3so23-stewart                      = "python examples/se3so23_stewart.py"
+
+[tool.pixi.feature.dev.target.osx-arm64.tasks] # MacOS needs to use mjpython for MuJoCo examples
+    se3so23-sr-platform-basic-continuous = "mjpython examples/se3so23_sr_platform_basic_continuous.py"
+    se3so23-sr-platform-rrr-serial       = "mjpython examples/se3so23_sr_platform_rrr_serial.py"
+    se3so23-stewart                      = "mjpython examples/se3so23_stewart.py"
