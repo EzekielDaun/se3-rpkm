@@ -84,18 +84,41 @@ class AbstractManipulator(Generic[T, J], ABC):
             @ jacobian_wrt_joint_log_matrix
         )
 
-    def ik_optx(self, task_coord: T, initial_joint_coord: J) -> J:
+    def ik_optx(self, task_coord: T, initial_joint_coord: J, **kwargs) -> J:
+        """ik_optx
+        Inverse kinematics solver using Optimistix
+
+        Args:
+            task_coord (T): The desired task coordinate
+            initial_joint_coord (J): Initial guess for the joint coordinate
+            **kwargs: Additional keyword arguments for Optimistix root finder
+
+        Returns:
+            J: The computed joint coordinate that achieves the desired task coordinate
+        """
+
         def f(x, args):
             return self.kinematic_constraints(task_coord, x)
 
         solver = optx.LevenbergMarquardt(rtol=1e-5, atol=1e-5)
-        sol = optx.root_find(f, solver, initial_joint_coord)
+        sol = optx.root_find(f, solver, initial_joint_coord, **kwargs)
         return sol.value
 
-    def fk_optx(self, joint_coord: J, initial_task_coord: T) -> T:
+    def fk_optx(self, joint_coord: J, initial_task_coord: T, **kwargs) -> T:
+        """fk_optx
+
+        Args:
+            joint_coord (J): The given joint coordinate
+            initial_task_coord (T): Initial guess for the task coordinate
+            **kwargs: Additional keyword arguments for Optimistix root finder
+
+        Returns:
+            T: The computed task coordinate that corresponds to the given joint coordinate
+        """
+
         def f(x, args):
             return self.kinematic_constraints(x, joint_coord)
 
         solver = optx.LevenbergMarquardt(rtol=1e-5, atol=1e-5)
-        sol = optx.root_find(f, solver, initial_task_coord)
+        sol = optx.root_find(f, solver, initial_task_coord, **kwargs)
         return sol.value

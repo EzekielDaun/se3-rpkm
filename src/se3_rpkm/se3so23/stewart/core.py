@@ -8,7 +8,7 @@ from jax.tree_util import Partial
 from jaxlie import SE3, SO2
 
 from ...lie_group_kinematics import AbstractManipulator
-from ..data_types import (
+from ...data_types import (
     SE3SO23,
     SO23,
     Mat3x3,

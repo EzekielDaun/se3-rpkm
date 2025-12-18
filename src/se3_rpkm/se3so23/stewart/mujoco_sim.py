@@ -2,7 +2,7 @@ import jax.numpy as jnp
 import mujoco
 from jaxlie import SO3
 
-from ..data_types import SE3SO23
+from ...data_types import SE3SO23
 from .core import SE3SO23StewartDimension
 
 

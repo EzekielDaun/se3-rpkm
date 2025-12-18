@@ -2,7 +2,7 @@ import jax.numpy as jnp
 import mujoco
 from jaxlie import SO3
 
-from se3_rpkm.se3so23.data_types import SO29
+from se3_rpkm.data_types import SO29
 
 from .core import (
     SE3SO23,

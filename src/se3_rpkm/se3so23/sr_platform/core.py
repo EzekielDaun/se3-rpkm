@@ -8,7 +8,7 @@ from jaxlie import SE3, SO2, SO3
 from jaxtyping import Float
 
 from ...lie_group_kinematics import AbstractManipulator
-from ..data_types import SE3SO23, SO23, SO29, Mat3x3, Vec3, Vec9
+from ...data_types import SE3SO23, SO23, SO29, Mat3x3, Vec3, Vec9
 
 
 @jdc.pytree_dataclass(frozen=True)

@@ -10,7 +10,7 @@ from jaxlie import SE3, SO2, SO3
 from mujoco import mjx
 from teleop_types import Pose, Twist
 
-from se3_rpkm.se3so23.data_types import SE3SO23, Vec9
+from se3_rpkm.data_types import SE3SO23, Vec9
 from se3_rpkm.se3so23.stewart.core import SE3SO23StewartDimension
 from se3_rpkm.se3so23.stewart.mujoco_sim import mjcf_model_data
 

@@ -1,8 +1,8 @@
 # SE3-RPKM
 
-A collection of spatial (DOF>=6) Redundant Parallel Kinematic Machines (RPKMs), with kinematics modeling in Lie groups, implemented in JAX.
+A collection of spatial (DOF>=6) Redundant Parallel Kinematic Machines (RPKMs), with differentiable kinematics modeling in Lie groups, implemented in JAX.
 
-Examples include redundancy resolution algorithms and simulation in MuJoCo and MJX.
+Examples include redundancy resolution algorithms and simulation in MuJoCo/MJX.
 
 ## Installation
 

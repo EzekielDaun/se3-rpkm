@@ -11,7 +11,7 @@ from jaxlie import SE3, SO2, SO3
 from mujoco import mjx
 from teleop_types import Pose, Twist
 
-from se3_rpkm.se3so23.data_types import SE3SO23, SO29
+from se3_rpkm.data_types import SE3SO23, SO29
 from se3_rpkm.se3so23.sr_platform.core import (
     RRRSerialArmKinematics,
     SE3SO23SRPlatform3RSerialArmKinematics,
@@ -190,6 +190,7 @@ if __name__ == "__main__":
                 print("Resetting to initial position.")
                 mujoco.mj_resetDataKeyframe(model, data, 0)  # type: ignore
                 x = x0
+                q = q0
 
             # MuJoCo step
             ## MJX

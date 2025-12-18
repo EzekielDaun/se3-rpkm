@@ -4,7 +4,7 @@ import jax_dataclasses as jdc
 from jaxlie import SE3, SO2
 from jaxtyping import Array, Float
 
-from ..lie_group_kinematics import (
+from .lie_group_kinematics import (
     AbstractLieGroupTree,
 )
 
