@@ -12,13 +12,10 @@ from mujoco import mjx
 from teleop_types import Pose, Twist
 
 from se3_rpkm.data_types import SE3SO23, SO29
-from se3_rpkm.se3so23.sr_platform.core import (
+from se3_rpkm.sr_platform import (
     RRRSerialArmKinematics,
     SE3SO23SRPlatform3RSerialArmKinematics,
     SE3SO23SRPlatformKinematics,
-)
-from se3_rpkm.se3so23.sr_platform.mujoco_sim import (
-    mjcf_spec_platform_and_rrr_serial_model_data,
 )
 
 
@@ -110,7 +107,8 @@ if __name__ == "__main__":
     for _ in range(10):
         q0 = dimension.ik_optx(x0, q0).normalize()
 
-    spec, model, data = mjcf_spec_platform_and_rrr_serial_model_data(dimension, x0, q0)
+    # spec, model, data = mjcf_spec_platform_and_rrr_serial_model_data(dimension, x0, q0)
+    spec, model, data = dimension.mj_spec_model_data(x0, q0)
 
     mx = mjx.put_model(model)
     dx = mjx.put_data(model, data)

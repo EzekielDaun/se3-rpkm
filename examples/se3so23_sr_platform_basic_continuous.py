@@ -11,14 +11,11 @@ from mujoco import mjx
 from teleop_types import Pose, Twist
 
 from se3_rpkm.data_types import SE3SO23, Vec9
-from se3_rpkm.se3so23.sr_platform.core import SE3SO23SRPlatformKinematics
-from se3_rpkm.se3so23.sr_platform.mujoco_sim import (
-    mjcf_spec_platform_and_gantry_model_data,
-)
+from se3_rpkm.sr_platform import SE3SO23SRPlatformGantryKinematics
 
 
 @jdc.pytree_dataclass(frozen=True)
-class DimensionJIT(SE3SO23SRPlatformKinematics):
+class DimensionJIT(SE3SO23SRPlatformGantryKinematics):
     @jax.jit
     def ik(self, task_coord: SE3SO23) -> Vec9:
         return super().ik(task_coord)
@@ -73,7 +70,7 @@ if __name__ == "__main__":
         rdof=SO2.from_radians(jnp.deg2rad(jnp.array([90.0, 90.0, 90.0]))),
     )
 
-    spec, model, data = mjcf_spec_platform_and_gantry_model_data(dimension, x0)
+    spec, model, data = dimension.mj_spec_model_data(x0)
 
     mx = mjx.put_model(model)
     dx = mjx.put_data(model, data)

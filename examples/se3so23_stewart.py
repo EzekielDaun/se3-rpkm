@@ -11,8 +11,7 @@ from mujoco import mjx
 from teleop_types import Pose, Twist
 
 from se3_rpkm.data_types import SE3SO23, Vec9
-from se3_rpkm.se3so23.stewart.core import SE3SO23StewartDimension
-from se3_rpkm.se3so23.stewart.mujoco_sim import mjcf_model_data
+from se3_rpkm.stewart import SE3SO23StewartDimension
 
 
 @jdc.pytree_dataclass(frozen=True)
@@ -100,7 +99,7 @@ if __name__ == "__main__":
         (_, loss), x = DIMENSION.damped_newton_step_fn((x, 0.0), x0.pose, factor=1e-2)
     print("JIT warm up done.")
 
-    model, data = mjcf_model_data(DIMENSION, x0)
+    spec, model, data = DIMENSION.mj_spec_model_data(x0)
 
     mx = mjx.put_model(model)
     dx = mjx.put_data(model, data)
