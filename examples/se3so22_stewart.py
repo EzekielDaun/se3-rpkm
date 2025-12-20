@@ -10,20 +10,20 @@ from jaxlie import SE3, SO2, SO3
 from mujoco import mjx
 from teleop_types import Pose, Twist
 
-from se3_rpkm.data_types import SE3SO23, Vec9
-from se3_rpkm.so2_redundant_stewart import SE3SO23StewartKinematics
+from se3_rpkm.data_types import SE3SO22, Vec8
+from se3_rpkm.so2_redundant_stewart import SE3SO22StewartKinematics
 
 
 @jdc.pytree_dataclass(frozen=True)
-class DimensionJIT(SE3SO23StewartKinematics):
+class DimensionJIT(SE3SO22StewartKinematics):
     @jax.jit
     def damped_newton_step_fn(
-        self, carry: tuple[SE3SO23, float], pose: SE3, factor: float
+        self, carry: tuple[SE3SO22, float], pose: SE3, factor: float
     ):
         return super().damped_newton_step_fn(carry, pose, factor)
 
     @jax.jit
-    def ik(self, task_coord: SE3SO23) -> Vec9:
+    def ik(self, task_coord: SE3SO22) -> Vec8:
         return super().ik(task_coord)
 
 
@@ -48,38 +48,28 @@ def mjx_step(*args, **kwargs):
 
 
 if __name__ == "__main__":
-    l_j = 80e-3 * jnp.ones(3)
-    unit = 250e-3
-
-    a21_xyz = jnp.array([unit, 0.75 * -(3**0.5) / 2 * unit, 0])
-    a22_xyz = jnp.array([unit, 0.75 * (3**0.5) / 2 * unit, 0])
-    a2_xyz = jnp.array([unit, -unit * 3**0.5, 0])
-
-    v2x_xyz = 1 * jnp.array([unit, 0.25 * unit, 0])
-    v2_xyz = 1 * jnp.array([unit, -0.25 * unit, 0])
-
-    # =========================================================
-
-    so3_z_120_dup = SO3.from_z_radians(2 * jnp.pi * jnp.array([1 / 3, 0 / 3, 2 / 3]))
-
-    ai_xyz = so3_z_120_dup.apply(a2_xyz)
-    aj1_xyz = so3_z_120_dup.apply(a21_xyz)
-    aj2_xyz = so3_z_120_dup.apply(a22_xyz)
-    vi_xyz = so3_z_120_dup.apply(v2_xyz)
-    vj_xyz = so3_z_120_dup.apply(v2x_xyz)
-
+    beta = 2.25 * 2e-1
+    rot_90 = SO3.from_z_radians(jnp.linspace(0, 2 * jnp.pi, 4, endpoint=False))
+    rot_180 = SO3.from_z_radians(jnp.linspace(0, 2 * jnp.pi, 2, endpoint=False))
     DIMENSION = DimensionJIT(
-        a_i=ai_xyz,
-        v_i=vi_xyz,
-        a_j1=aj1_xyz,
-        a_j2=aj2_xyz,
-        v_j=vj_xyz,
-        l_j=l_j,
+        a_i=rot_90.inverse().apply(jnp.array([beta, beta, 0.0])),
+        a_j1=rot_180.apply(jnp.array([beta, beta, 0.0])),
+        a_j2=rot_180.apply(jnp.array([beta, -beta, 0.0])),
+        v_i=jnp.array(
+            [
+                [0.0, beta, 0.0],
+                [0.0, -beta, 0.0],
+                [0.0, -beta, 0.0],
+                [0.0, beta, 0.0],
+            ]
+        )
+        / 2.25,
+        v_j=rot_180.apply(jnp.array([beta, 0.0, 0.0]) / 2.25),
+        l_j=jnp.array([beta, beta]) * 0.15,
     )
-
-    x0 = SE3SO23(
-        SE3.from_translation(jnp.array([0.0, 0.0, unit * 1.5])),
-        SO2.from_radians(jnp.deg2rad(jnp.array([45.0, 45.0, 45.0]))),
+    x0 = SE3SO22(
+        SE3.from_translation(jnp.array([0.0, 0.0, beta * 2.5])),
+        SO2.from_radians(jnp.deg2rad(jnp.array([45.0, 135.0]))),
     )
 
     x = x0
@@ -130,24 +120,15 @@ if __name__ == "__main__":
                 twist: Twist = maybe_twist.payload().contents
                 se3_log = (
                     jnp.array(
-                        [
-                            twist.vx,
-                            twist.vy,
-                            twist.vz,
-                            twist.wx,
-                            twist.wy,
-                            twist.wz,
-                        ],
-                        dtype=jnp.float64,
+                        [twist.vx, twist.vy, twist.vz, twist.wx, twist.wy, twist.wz]
                     )
                     * model.opt.timestep
                 )
-
                 (_, loss), x = DIMENSION.damped_newton_step_fn(
-                    (x, 0.0), x.pose @ SE3.exp(se3_log), factor=1e-2
+                    (x, 0.0), x.pose @ SE3.exp(se3_log), factor=3e-2
                 )
                 data.ctrl = DIMENSION.ik(x)
-                # print(DIMENSION.loss_func(x))
+
                 if (
                     jnp.isnan(loss)
                     or jnp.any(jnp.isnan(jnp.array(data.ctrl)))

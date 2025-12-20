@@ -23,7 +23,7 @@ pixi install --all
 
 - Redundant Stewart Platform
   - [x] $\mathrm{SE}(3) \times \mathrm{SO}(2)^3$ [^1] `pixi run se3so23-stewart`
-  - [ ] $\mathrm{SE}(3) \times \mathrm{SO}(2)^2$ [^2]
+  - [x] $\mathrm{SE}(3) \times \mathrm{SO}(2)^2$ [^2] `pixi run se3so22-stewart`
   - [ ] $\mathrm{SE}(3) \times \mathbb{R}^3$ [^3]
 - 3-SR Platform $(\mathrm{SE}(3) \times \mathrm{SO}(2)^3)$
   - [x] 3-PPPSR [^5] `pixi run se3so23-sr-platform-basic-continuous`

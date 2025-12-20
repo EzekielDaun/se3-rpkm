@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Generic, Protocol, TypeVar, Union
 
 import jax_dataclasses as jdc
-from jaxlie import SE3, SO2, SO3
+from jaxlie import SE3, SO2, SO3, MatrixLieGroup
 from jaxtyping import Array, Float
 
 from .lie_group_kinematics import (
@@ -26,32 +26,36 @@ Vec9 = Annotated[Float[Array, "9"], ""]
 Mat2x3 = Annotated[Float[Array, "2 3"], ""]  # noqa: F722
 Mat3x3 = Annotated[Float[Array, "3 3"], ""]  # noqa: F722
 Mat4x3 = Annotated[Float[Array, "4 3"], ""]  # noqa: F722
-Mat6x6 = Annotated[Float[Array, "6 6"], ""]  # noqa: F722
 Mat8x8 = Annotated[Float[Array, "8 8"], ""]  # noqa: F722
-Mat9x9 = Annotated[Float[Array, "9 9"], ""]  # noqa: F722
-Mat3x15 = Annotated[Float[Array, "3 15"], ""]  # noqa: F722
+
+T = TypeVar("T", bound=Union[MatrixLieGroup, Float])
+
+
+class RedundantSE3TaskCoordinate(Generic[T], Protocol):
+    pose: SE3
+    rdof: T
 
 
 @jdc.pytree_dataclass(frozen=True, slots=True)
-class SE3SO22(AbstractLieGroupTree):
+class SE3SO22(AbstractLieGroupTree, RedundantSE3TaskCoordinate[SO22]):
     pose: SE3
     rdof: SO22
 
 
 @jdc.pytree_dataclass(frozen=True, slots=True)
-class SE3SO23(AbstractLieGroupTree):
+class SE3SO23(AbstractLieGroupTree, RedundantSE3TaskCoordinate[SO23]):
     pose: SE3
     rdof: SO23
 
 
 @jdc.pytree_dataclass(frozen=True, slots=True)
-class SE3SO3(AbstractLieGroupTree):
+class SE3SO3(AbstractLieGroupTree, RedundantSE3TaskCoordinate[SO3]):
     pose: SE3
     rdof: SO3
 
 
 @jdc.pytree_dataclass(frozen=True, slots=True)
-class SE3R3(AbstractLieGroupTree):
+class SE3R3(AbstractLieGroupTree, RedundantSE3TaskCoordinate[Vec3]):
     pose: SE3
     rdof: Vec3
 

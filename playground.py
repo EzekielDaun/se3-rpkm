@@ -2,7 +2,7 @@ import jax.numpy as jnp
 from jaxlie import SE3, SO2, SO3
 
 from se3_rpkm.data_types import SE3SO22
-from se3_rpkm.stewart import SE3SO22StewartKinematics
+from se3_rpkm.so2_redundant_stewart import SE3SO22StewartKinematics
 
 if __name__ == "__main__":
     beta = 2.25

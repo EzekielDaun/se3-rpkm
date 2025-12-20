@@ -34,11 +34,13 @@
     gamepad-twist-publisher  = "cd examples/gamepad-twist-publisher && cargo run --release"
     keyboard-twist-publisher = "cd examples/keyboard-twist-publisher && cargo run --release"
     # Mujoco examples
+    se3so22-stewart                      = "python examples/se3so22_stewart.py"
     se3so23-sr-platform-basic-continuous = "python examples/se3so23_sr_platform_basic_continuous.py"
     se3so23-sr-platform-rrr-serial       = "python examples/se3so23_sr_platform_rrr_serial.py"
     se3so23-stewart                      = "python examples/se3so23_stewart.py"
 
 [tool.pixi.feature.dev.target.osx-arm64.tasks] # MacOS needs to use mjpython for MuJoCo examples
+    se3so22-stewart                      = "mjpython examples/se3so22_stewart.py"
     se3so23-sr-platform-basic-continuous = "mjpython examples/se3so23_sr_platform_basic_continuous.py"
     se3so23-sr-platform-rrr-serial       = "mjpython examples/se3so23_sr_platform_rrr_serial.py"
     se3so23-stewart                      = "mjpython examples/se3so23_stewart.py"
