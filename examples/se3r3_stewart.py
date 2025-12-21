@@ -6,27 +6,23 @@ import jax.numpy as jnp
 import jax_dataclasses as jdc
 import mujoco
 import mujoco.viewer as viewer
-from jaxlie import SE3, SO2, SO3
+from jaxlie import SE3, SO3
 from mujoco import mjx
 from teleop_types import Pose, Twist
 
-from se3_rpkm.data_types import SE3SO23, Vec9
-from se3_rpkm.sr_platform import SE3SO23SRPlatformGantryKinematics
+from se3_rpkm.data_types import Vec9
+from se3_rpkm.linear_redundant_stewart import SE3R3, RedundantR3LegStewartKinematics
 
 
 @jdc.pytree_dataclass(frozen=True)
-class DimensionJIT(SE3SO23SRPlatformGantryKinematics):
+class DimensionJIT(RedundantR3LegStewartKinematics):
     @jax.jit
-    def ik(self, task_coord: SE3SO23) -> Vec9:
+    def ik(self, task_coord: SE3R3) -> Vec9:
         return super().ik(task_coord)
 
     @jax.jit
-    def loss_grad(self, x: SE3SO23) -> SE3SO23:
+    def loss_grad(self, x: SE3R3):
         return super().loss_grad(x)
-
-    @jax.jit
-    def loss(self, x: SE3SO23) -> float:
-        return super().loss(x)
 
 
 # MJX Simulation
@@ -50,27 +46,45 @@ def mjx_step(*args, **kwargs):
 
 
 if __name__ == "__main__":
-    dimension = DimensionJIT(
-        revolute_se3_transforms=tuple(
-            (
-                SE3.from_rotation(
-                    SO3.from_z_radians(jnp.array([0.0, 2 * jnp.pi / 3, 4 * jnp.pi / 3]))
-                )
-                @ SE3.from_translation(jnp.array([0.5, 0.0, 0.0]))
-            )
-            .parameters()
-            .flatten()
-            .tolist()
+    alpha = 70.3e-3
+    beta_deg = 45
+    h = 10e-3
+
+    deg_120_3 = jnp.array([0.0, 120.0, 240.0])
+    rad_120_3 = jnp.deg2rad(deg_120_3)
+
+    DIMENSION = DimensionJIT(
+        v_i1=SO3.from_z_radians(jnp.deg2rad(50.0 + deg_120_3)).apply(
+            jnp.array([[alpha, 0.0, 0.0]])
         ),
-        redundant_links_tuple=tuple([0.2] * 3),
+        v_i2=SO3.from_z_radians(jnp.deg2rad(-50.0 + deg_120_3)).apply(
+            jnp.array([[alpha, 0.0, 0.0]])
+        ),
+        r_i_se3=SE3.from_rotation(SO3.from_z_radians(rad_120_3))
+        @ SE3.from_rotation_and_translation(
+            SO3.from_y_radians(jnp.deg2rad(-beta_deg)),
+            jnp.array([100e-3, 0.0, 0.0]),
+        ),
+        a_i1_in_r=jnp.array([[0, h, 0]] * 3),
+        a_i2_in_r=jnp.array([[0, -h, 0]] * 3),
+        r_i_lower_limits=-0.1 * jnp.ones(3),
+        r_i_upper_limits=0.1 * jnp.ones(3),
     )
 
-    x0 = SE3SO23(
-        pose=SE3.identity(),
-        rdof=SO2.from_radians(jnp.deg2rad(jnp.array([90.0, 90.0, 90.0]))),
+    x0 = SE3R3(
+        pose=SE3.from_translation(jnp.array([0, 0, 0.2])),
+        rdof=jnp.ones(3) * 0,
     )
 
-    spec, model, data = dimension.mj_spec_model_data(x0)
+    x = x0
+    # JIT warm up
+    print("Warming up JIT...")
+    for _ in range(int(1e3)):
+        grad = DIMENSION.loss_grad(x)
+        x = SE3R3(pose=x.pose, rdof=x.rdof - 1e-3 * grad.rdof)
+    print("JIT warm up done.")
+
+    spec, model, data = DIMENSION.mj_spec_model_data(x)
 
     mx = mjx.put_model(model)
     dx = mjx.put_data(model, data)
@@ -92,8 +106,7 @@ if __name__ == "__main__":
         .create()
     )
 
-    x = x0
-    se3_log = jnp.zeros(6)
+    jit_step = jax.jit(jax.vmap(mjx.step, in_axes=(None, 0)))
     with viewer.launch_passive(model, data) as viewer:
         last_update_instant = time.perf_counter()
         while viewer.is_running():
@@ -123,49 +136,24 @@ if __name__ == "__main__":
                     )
                     * model.opt.timestep
                 )
-                x = SE3SO23(pose=x.pose @ SE3.exp(se3_log), rdof=x.rdof)
 
-            # rdof 1 increment
-            x = SE3SO23(
-                pose=x.pose,
-                rdof=x.rdof
-                @ SO2.exp(
-                    model.opt.timestep
-                    * jnp.deg2rad(jnp.array([60, 0, 0])).reshape(3, 1)
-                ),
-            )
-
-            # redundancy resolution
-            grad_rdof = dimension.loss_grad(x).rdof.flatten()
-            update_rdof = -1e-3 * jnp.array(
-                [
-                    0,  # first rdof is externally controlled
-                    grad_rdof[1] * 50,  # magic: imbalance makes it better
-                    grad_rdof[2],
-                ]
-            )
-
-            x = SE3SO23(
-                pose=x.pose @ SE3.exp(se3_log),
-                rdof=x.rdof @ SO2.exp(update_rdof.reshape(3, 1)),
-            )
-
-            data.ctrl = dimension.ik(x)
-
-            if (
-                # redundancy failed
-                jnp.any(jnp.isnan(jnp.array(data.ctrl)))
-                # translational error
-                or jnp.linalg.norm(x.pose.translation() - data.qpos[:3]) > 20e-3
-                # rotational error
-                or jnp.linalg.norm(
-                    (x.pose.rotation().inverse() @ SO3(data.qpos[3:7])).log()
+                grad = DIMENSION.loss_grad(x)
+                x = SE3R3(
+                    pose=x.pose @ SE3.exp(se3_log), rdof=x.rdof - 1e-3 * grad.rdof
                 )
-                > jnp.deg2rad(10)
-            ):
-                print("Resetting to initial position.")
-                mujoco.mj_resetDataKeyframe(model, data, 0)  # type: ignore
-                x = x0
+
+                data.ctrl = DIMENSION.ik(x)
+                # print(DIMENSION.loss_func(x))
+                if (
+                    # jnp.isnan(loss)
+                    jnp.any(jnp.isnan(jnp.array(data.ctrl)))
+                    or jnp.linalg.norm(x.pose.translation() - data.qpos[:3]) > 0.1
+                    or jnp.linalg.norm(x.pose.rotation().parameters() - data.qpos[3:7])
+                    > 0.1
+                ):
+                    print("Resetting to initial position.")
+                    mujoco.mj_resetDataKeyframe(model, data, 0)  # type: ignore
+                    x = x0
 
             # MuJoCo step
             ## MJX
@@ -178,7 +166,11 @@ if __name__ == "__main__":
                 data.qvel,
                 data.time,
             )
+            # dx_batch = jax.vmap(lambda _: dx.replace())(jnp.zeros(1000))
+            # dx_batch = jax.vmap(lambda _: dx.replace())(jnp.zeros(1))
             dx = mjx_step(mx, dx)
+            # dx_batch = jit_step(mx, dx_batch)
+            # mjx.get_data_into(data, model, dx_batch[0])
             mjx.get_data_into(data, model, dx)
             viewer.sync()
 
@@ -186,7 +178,6 @@ if __name__ == "__main__":
             # mujoco.mj_step(model, data)  # type: ignore
             # viewer.sync()
 
-            # timing control
             elapsed = time.perf_counter() - start
             if elapsed < model.opt.timestep:
                 print(f"Sleeping for {model.opt.timestep - elapsed:.6f} seconds")
@@ -195,4 +186,3 @@ if __name__ == "__main__":
                 print(
                     f"Step took {elapsed:.6f} seconds, which is longer than timestep."
                 )
-                pass

@@ -14,6 +14,7 @@
         "eigvecs",
         "finfo",
         "freejoint",
+        "fromto",
         "gainprm",
         "iceoryx",
         "jaxlie",
@@ -49,6 +50,7 @@
         "uservert",
         "vmap",
         "worldbody",
+        "wxyz",
         "xfrc"
     ]
 }

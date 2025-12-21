@@ -158,8 +158,7 @@ if __name__ == "__main__":
                             twist.wx,
                             twist.wy,
                             twist.wz,
-                        ],
-                        dtype=jnp.float64,
+                        ]
                     )
                     * model.opt.timestep
                 )

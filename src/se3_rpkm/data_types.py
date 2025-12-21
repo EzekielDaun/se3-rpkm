@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 SO22 = Annotated[SO2, "Batch of 2 SO2"]
 SO23 = Annotated[SO2, "Batch of 3 SO2"]
 SO29 = Annotated[SO2, "Batch of 9 SO2"]
+SE33 = Annotated[SE3, "Batch of 3 SE3"]
 Vec3 = Annotated[Float[Array, "3"], ""]
 Vec8 = Annotated[Float[Array, "8"], ""]
 Vec9 = Annotated[Float[Array, "9"], ""]
