@@ -21,12 +21,15 @@ SO22 = Annotated[SO2, "Batch of 2 SO2"]
 SO23 = Annotated[SO2, "Batch of 3 SO2"]
 SO29 = Annotated[SO2, "Batch of 9 SO2"]
 SE33 = Annotated[SE3, "Batch of 3 SE3"]
+SE39 = Annotated[SE3, "Batch of 9 SE3"]
 Vec3 = Annotated[Float[Array, "3"], ""]
 Vec8 = Annotated[Float[Array, "8"], ""]
 Vec9 = Annotated[Float[Array, "9"], ""]
 Mat2x3 = Annotated[Float[Array, "2 3"], ""]  # noqa: F722
 Mat3x3 = Annotated[Float[Array, "3 3"], ""]  # noqa: F722
 Mat4x3 = Annotated[Float[Array, "4 3"], ""]  # noqa: F722
+Mat5x3 = Annotated[Float[Array, "5 3"], ""]  # noqa: F722
+Mat9x3 = Annotated[Float[Array, "9 3"], ""]  # noqa: F722
 Mat8x8 = Annotated[Float[Array, "8 8"], ""]  # noqa: F722
 
 T = TypeVar("T", bound=Union[MatrixLieGroup, Float])

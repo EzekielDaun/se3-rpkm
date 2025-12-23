@@ -3,37 +3,39 @@ import mujoco
 import mujoco.viewer
 from jaxlie import SE3, SO3
 
-from se3_rpkm.data_types import SE3R3
-from se3_rpkm.linear_redundant_stewart import RedundantR3LegStewartKinematics
+from se3_rpkm.data_types import SE3SO3
+from se3_rpkm.se3so3_5pss_s_4pss import SE3SO3_5PSS_S_4PSS_Kinematics
 
 if __name__ == "__main__":
-    alpha = 70.3e-3
-    beta_deg = 45
-    h = 10e-3
-
-    deg_120_3 = jnp.array([0.0, 120.0, 240.0])
-    rad_120_3 = jnp.deg2rad(deg_120_3)
-
-    dimension = RedundantR3LegStewartKinematics(
-        v_i1=SO3.from_z_radians(jnp.deg2rad(50.0 + deg_120_3)).apply(
-            jnp.array([[alpha, 0.0, 0.0]])
+    dimension = SE3SO3_5PSS_S_4PSS_Kinematics(
+        slider_axis=SE3.from_translation(
+            SO3.from_z_radians(
+                jnp.deg2rad(jnp.array([-50, -40, 40, 50, 130, 140, 180, 220, 230]))
+            ).apply(jnp.array([[250e-3, 0.0, 0.0]]))
         ),
-        v_i2=SO3.from_z_radians(jnp.deg2rad(-50.0 + deg_120_3)).apply(
-            jnp.array([[alpha, 0.0, 0.0]])
+        link_length=0.3 * jnp.ones(9),
+        a1_a5=SO3.from_z_radians(jnp.deg2rad(jnp.array([-80, -5, 5, 80, 100]))).apply(
+            jnp.array([[150e-3, 0.0, 0.0]])
         ),
-        r_i_se3=SE3.from_rotation(SO3.from_z_radians(rad_120_3))
-        @ SE3.from_rotation_and_translation(
-            SO3.from_y_radians(jnp.deg2rad(-beta_deg)),
-            jnp.array([100e-3, 0.0, 0.0]),
+        a6_a9=SO3.from_z_radians(jnp.deg2rad(jnp.array([110, 180, 185, 240]))).apply(
+            jnp.array([[150e-3, 0.0, 0.0]])
         ),
-        a_i1_in_r=jnp.array([[0, h, 0]] * 3),
-        a_i2_in_r=jnp.array([[0, -h, 0]] * 3),
     )
 
-    # x = SE3R3(pose=SE3.identity(), rdof=jnp.array([0.1, 0.1, 0.1]))
-    # print(dimension.ik(x))
+    # print(dimension.a_i(SE3SO3(SE3.identity(), SO3.identity())))
+    # print(dimension.b_i(0.1 * jnp.ones(9)))
+    # print(
+    #     dimension.kinematic_constraints(
+    #         SE3SO3(SE3.identity(), SO3.identity()), jnp.zeros((9, 3))
+    #     )
+    # )
+
+    x0 = SE3SO3(
+        pose=SE3.from_translation(jnp.array([0.0, 0.0, 250e-3])), rdof=SO3.identity()
+    )
+    q0 = jnp.ones(9) * 0.1
 
     spec = dimension.mj_spec()
     model = spec.compile()
-    mujoco.viewer.launch(model)
 
+    mujoco.viewer.launch(model)
