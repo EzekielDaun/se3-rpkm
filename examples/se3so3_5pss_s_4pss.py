@@ -18,8 +18,8 @@ from se3_rpkm.se3so3_5pss_s_4pss import SE3SO3_5PSS_S_4PSS_Kinematics
 @jdc.pytree_dataclass(frozen=True)
 class JITDimension(SE3SO3_5PSS_S_4PSS_Kinematics):
     @jax.jit
-    def ik_optx(self, task_coord: SE3SO3, joint_coordinate: Vec9) -> Vec9:
-        return super().ik_optx(task_coord, joint_coordinate)
+    def ik_lm_optx(self, task_coord: SE3SO3, joint_coordinate: Vec9) -> Vec9:
+        return super().ik_lm_optx(task_coord, joint_coordinate)
 
     @jax.jit
     def loss(self, x: SE3SO3, q: Vec9):
@@ -71,7 +71,7 @@ if __name__ == "__main__":
     x0 = SE3SO3(pose=SE3.identity(), rdof=SO3.identity())
     q0 = jnp.ones(9) * 0.1
     for _ in range(10):
-        q0 = dimension.ik_optx(x0, q0)
+        q0 = dimension.ik_lm_optx(x0, q0)
 
     # spec, model, data = mjcf_spec_platform_and_rrr_serial_model_data(dimension, x0, q0)
     spec, model, data = dimension.mj_spec_model_data(x0, q0)
@@ -136,7 +136,7 @@ if __name__ == "__main__":
                 pose=x.pose @ SE3.exp(se3_log),
                 rdof=x.rdof @ SO3.exp(-2e-4 * grad_rdof),
             )
-            q = dimension.ik_optx(x, q)
+            q = dimension.ik_lm_optx(x, q)
             data.ctrl = q
             print(dimension.loss(x, q))
 

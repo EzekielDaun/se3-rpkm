@@ -23,12 +23,29 @@ if TYPE_CHECKING:
 
 @jdc.pytree_dataclass(frozen=True, slots=True)
 class SE3SO3_5PSS_S_4PSS_Kinematics(AbstractManipulator[SE3SO3, Vec9], MuJoCoMixin):
-    slider_axis: SE39  # Batch of 9 SE3, sliding along Z-axis
+    """
+    Kinematics model for a 5PSS-S-4PSS manipulator with an $\\mathrm{SO}(3)$ redundant orientation.
+
+    Coordinates are row vectors.
+    """
+
+    slider_axis: SE39
+    """Batch of 9 SE3 transforms from the base frame to the slider frames, sliding along local Z-axis."""
     link_length: Vec9
-    a1_a5: Mat5x3  # (5, 3), 5 row vectors
-    a6_a9: Mat4x3  # (4, 3), 4 row vectors
+    """Lengths of the 9 PSS links."""
+    a1_a5: Mat5x3
+    """Attachment points on the main end-effector for legs 1-5, in end-effector frame."""
+    a6_a9: Mat4x3
+    """Attachment points on the redundant end-effector for legs 6-9, in end-effector frame."""
 
     def a_i(self, x: SE3SO3) -> Mat9x3:
+        """
+        Args:
+            x (SE3SO3): Task coordinates $\\mathrm{SE}(3) \\times \\mathrm{SO}(3)$.
+
+        Returns:
+            Mat9x3: All 9 end-effector attachment points in world frame.
+        """
         return jnp.concatenate(
             [
                 x.pose.apply(self.a1_a5),
@@ -37,20 +54,35 @@ class SE3SO3_5PSS_S_4PSS_Kinematics(AbstractManipulator[SE3SO3, Vec9], MuJoCoMix
         )
 
     def b_i(self, q: Vec9) -> Mat9x3:
+        """
+        Args:
+            q (Vec9): Slider joint coordinates.
+
+        Returns:
+            Mat9x3: All 9 slider link attachment points in world frame.
+        """
         return (
             self.slider_axis
             @ SE3.from_translation(jnp.zeros((9, 3)).at[:, 2].set(q)).translation()
         )
 
     @override
-    def kinematic_constraints(self, task_coord: SE3SO3, joint_coord: Vec9):
-        return (
-            jnp.linalg.norm(self.a_i(task_coord) - self.b_i(joint_coord), axis=1)
-            - self.link_length
-        )
+    def kinematic_constraints(self, x: SE3SO3, q: Vec9):
+        """
+        Args:
+            x (SE3SO3): Task coordinates $\\mathrm{SE}(3) \\times \\mathrm{SO}(3)$.
+            q (Vec9): Slider joint coordinates.s
+        Returns:
+            Vec9: Constraint residuals (leg lengths minus nominal link lengths).
+        """
+        return jnp.linalg.norm(self.a_i(x) - self.b_i(q), axis=1) - self.link_length
 
     @override
     def mj_spec(self) -> "mujoco_t.MjSpec":  # type: ignore
+        """
+        Returns:
+            mujoco_t.MjSpec: The MJCF specification of the mechanism.
+        """
         self._check_mujoco_availability()
 
         spec = mujoco.MjSpec()  # type: ignore
@@ -240,7 +272,18 @@ class SE3SO3_5PSS_S_4PSS_Kinematics(AbstractManipulator[SE3SO3, Vec9], MuJoCoMix
     def mj_spec_model_data(
         self, x0: SE3SO3, q0: Vec9, *args, **kwargs
     ) -> tuple["mujoco_t.MjSpec", "mujoco_t.MjModel", "mujoco_t.MjData"]:  # type: ignore
-        spec = self.mj_spec()
+        """
+        Args:
+            x0 (SE3SO3): Initial task coordinates.
+            q0 (Vec9): Initial joint coordinates.
+            *args: Additional arguments for `mj_spec`.
+            **kwargs: Additional keyword arguments for `mj_spec`.
+
+        Returns:
+            tuple[mujoco_t.MjSpec, mujoco_t.MjModel, mujoco_t.MjData]: MJCF spec, model,
+            and data initialized at the provided configuration.
+        """
+        spec = self.mj_spec(*args, **kwargs)
         spec.body("body_ee").pos = x0.pose.translation().tolist()
         spec.body("body_ee").quat = x0.pose.rotation().parameters().tolist()
         pose_rdof = x0.pose @ SE3.from_rotation(x0.rdof)
@@ -248,7 +291,7 @@ class SE3SO3_5PSS_S_4PSS_Kinematics(AbstractManipulator[SE3SO3, Vec9], MuJoCoMix
         model = spec.compile()  # type: ignore
         data = mujoco.MjData(model)  # type: ignore
 
-        data.ctrl = jnp.array(self.ik_optx(x0, q0))
+        data.ctrl = jnp.array(self.ik_lm_optx(x0, q0))
         for i in range(int(1e5)):
             mujoco.mj_step(model, data)  # type: ignore
             if jnp.linalg.norm(data.qvel, ord=jnp.inf) < 1e-6:

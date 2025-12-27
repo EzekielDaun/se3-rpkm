@@ -33,59 +33,146 @@ if TYPE_CHECKING:
 
 @jdc.pytree_dataclass(frozen=True, slots=True)
 class RedundantR3LegStewartKinematics(AbstractManipulator[SE3R3, Vec9], MuJoCoMixin):
-    v_i1: Float  # (3, 3), 3 row vectors
-    v_i2: Float  # (3, 3), 3 row vectors
-    r_i_se3: SE33  # Batch of 3 SE3, sliding along Z-axis
-    a_i1_in_r: Float  # (3, 3), 3 row vectors
-    a_i2_in_r: Float  # (3, 3), 3 row vectors
-    r_i_lower_limits: Float  # = jnp.array([-0.1, -0.1, -0.1])
-    r_i_upper_limits: Float  # = jnp.array([0.1, 0.1, 0.1])
+    """
+    Kinematics model for a Stewart platform with 3 redundant linear actuators, each connects two Stewart legs, namely, suffix `i1` and suffix `i2`.
+
+    Coordinates are row vectors.
+    """
+
+    v_i1: Mat3x3
+    """Attachment points on the end-effector for leg set `i1`, in end-effector frame."""
+    v_i2: Mat3x3
+    """Attachment points on the end-effector for leg set `i2`, in end-effector frame."""
+    r_i_se3: SE33
+    """Batch of 3 SE3 transforms from the base frame to the redundant prismatic joint frames, the redundant sliding is along local Z-axis."""
+    a_i1_in_r: Mat3x3
+    """Attachment points on the redundant prismatic joint frames for leg set `i1`, in redundant prismatic joint frames."""
+    a_i2_in_r: Mat3x3
+    """Attachment points on the redundant prismatic joint frames for leg set `i2`, in redundant prismatic joint frames."""
+    r_i_lower_limits: Vec3
+    """Lower limits for the redundant prismatic joints."""
+    r_i_upper_limits: Vec3
+    """Upper limits for the redundant prismatic joints."""
 
     def r_i(self, rdof: Vec3) -> SE33:
+        """
+        Args:
+            rdof (Vec3): Redundant DOF for the 3 redundant prismatic joints.
+
+        Returns:
+            SE33: Batch of 3 SE3 transforms from the base frame to the redundant prismatic joint frames at given redundant DOF.
+        """
         return self.r_i_se3 @ SE3.from_translation(jnp.zeros((3, 3)).at[:, 2].set(rdof))
 
     def a_i1(self, rdof: Vec3) -> Mat3x3:
+        """
+        Args:
+            rdof (Vec3): Redundant DOF for the 3 redundant prismatic joints.
+
+        Returns:
+            Mat3x3: Root attachment points for leg set `i1` at given redundant DOF, in world frame.
+        """
         return (self.r_i(rdof) @ SE3.from_translation(self.a_i1_in_r)).translation()
 
     def a_i2(self, rdof: Vec3) -> Mat3x3:
+        """
+        Args:
+            rdof (Vec3): Redundant DOF for the 3 redundant prismatic joints.
+
+        Returns:
+            Mat3x3: Root attachment points for leg set `i2` at given redundant DOF, in world frame.
+        """
         return (self.r_i(rdof) @ SE3.from_translation(self.a_i2_in_r)).translation()
 
     def b_i1(self, pose: SE3) -> Mat3x3:
+        """
+        Args:
+            pose (SE3): End-effector pose.
+
+        Returns:
+            Mat3x3: End-effector attachment points for leg set `i1` at given end-effector pose, in world frame.
+        """
         return pose.apply(self.v_i1)
 
     def b_i2(self, pose: SE3) -> Mat3x3:
+        """
+        Args:
+            pose (SE3): End-effector pose.
+
+        Returns:
+            Mat3x3: End-effector attachment points for leg set `i2` at given end-effector pose, in world frame.
+        """
         return pose.apply(self.v_i2)
 
-    def l_i1(self, task_coord: SE3R3) -> Vec3:
-        a_i1 = self.a_i1(task_coord.rdof)
-        b_i1 = self.b_i1(task_coord.pose)
+    def l_i1(self, x: SE3R3) -> Vec3:
+        """
+        Args:
+            x (SE3R3): Task coordinates $\\mathrm{SE}(3) \\times \\mathbb{R}^3$
+
+        Returns:
+            Vec3: Lengths of leg set `i1`.
+        """
+        a_i1 = self.a_i1(x.rdof)
+        b_i1 = self.b_i1(x.pose)
         return jnp.linalg.norm(a_i1 - b_i1, axis=1)
 
-    def l_i2(self, task_coord: SE3R3) -> Vec3:
-        a_i2 = self.a_i2(task_coord.rdof)
-        b_i2 = self.b_i2(task_coord.pose)
+    def l_i2(self, x: SE3R3) -> Vec3:
+        """
+        Args:
+            x (SE3R3): Task coordinates $\\mathrm{SE}(3) \\times \\mathbb{R}^3$
+
+        Returns:
+            Vec3: Lengths of leg set `i2`.
+        """
+        a_i2 = self.a_i2(x.rdof)
+        b_i2 = self.b_i2(x.pose)
         return jnp.linalg.norm(a_i2 - b_i2, axis=1)
 
-    def ik(self, task_coord: SE3R3) -> Vec9:
-        l1 = self.l_i1(task_coord)
-        l2 = self.l_i2(task_coord)
-        return jnp.concatenate([l1, l2, task_coord.rdof])
+    def ik(self, x: SE3R3) -> Vec9:
+        """
+        Args:
+            x (SE3R3): Task coordinates $\\mathrm{SE}(3) \\times \\mathbb{R}^3$
+
+        Returns:
+            Vec9: Joint coordinates $\\mathbb{R}^9$ (3 lengths of leg set `i1` + 3 lengths of leg set `i2` + 3 redundant prismatic joints).
+        """
+        l1 = self.l_i1(x)
+        l2 = self.l_i2(x)
+        return jnp.concatenate([l1, l2, x.rdof])
 
     @override
-    def kinematic_constraints(self, task_coord: SE3R3, joint_coord: Vec9) -> Vec9:
-        return self.ik(task_coord) - joint_coord
+    def kinematic_constraints(self, x: SE3R3, q: Vec9) -> Vec9:
+        return self.ik(x) - q
 
-    def loss(self, x: SE3R3) -> Float:
+    def loss(self, x: SE3R3, joint_limit_factor=1e-1) -> Float:
+        """
+        Args:
+            x (SE3R3): Task coordinates $\\mathrm{SE}(3) \\times \\mathbb{R}^3$
+            joint_limit_factor (float): Factor for joint limit penalty.
+
+        Returns:
+            Float: Scalar loss value. Negative Log-det of IK jacobian penalized by log-barrier on joint limits.
+        """
         jac = self.ik_jacobian(x, self.ik(x))
 
-        joint_limit_loss = 1e-1 * (
+        joint_limit_loss = joint_limit_factor * (
             -jnp.log(x.rdof - self.r_i_lower_limits).sum()
             - jnp.log(self.r_i_upper_limits - x.rdof).sum()
         )
         return -jnp.log(jnp.linalg.det(jac @ jac.T)) + joint_limit_loss
 
-    def loss_grad(self, x: SE3R3):
-        return jaxlie.manifold.grad(Partial(self.loss))(x)
+    def loss_grad(self, x: SE3R3, joint_limit_factor=1e-1) -> SE3R3:
+        """
+        Args:
+            x (SE3R3): Task coordinates $\\mathrm{SE}(3) \\times \\mathbb{R}^3$
+            joint_limit_factor (float): Factor for joint limit penalty.
+
+        Returns:
+            SE3R3: Gradient of the loss with respect to task coordinates, in `SE3R3` pytree format.
+        """
+        return jaxlie.manifold.grad(
+            Partial(self.loss, joint_limit_factor=joint_limit_factor)
+        )(x)
 
     @override
     def mj_spec(
@@ -95,6 +182,16 @@ class RedundantR3LegStewartKinematics(AbstractManipulator[SE3R3, Vec9], MuJoCoMi
         act_upper_radius=2.5e-3,
         act_upper_length=200e-3,
     ) -> "mujoco_t.MjSpec":  # type: ignore
+        """
+        Args:
+            act_lower_radius (float): Radius of the actuator lower capsule radius. Defaults to 5e-3.
+            act_lower_length (float): Length of the actuator lower capsule. Defaults to 100e-3.
+            act_upper_radius (float): Radius of the actuator upper capsule radius. Defaults to 2.5e-3.
+            act_upper_length (float): Length of the actuator upper capsule. Defaults to 200e-3.
+
+        Returns:
+            mujoco_t.MjSpec: The MJCF specification of the mechanism.
+        """
         self._check_mujoco_availability()
 
         spec = mujoco.MjSpec()  # type: ignore
@@ -182,10 +279,10 @@ class RedundantR3LegStewartKinematics(AbstractManipulator[SE3R3, Vec9], MuJoCoMi
             )
 
         # Linear Legs
-        leg_i1_joint_list = []
-        leg_i2_joint_list = []
-        leg_i1_site_list = []
-        leg_i2_site_list = []
+        leg_i1_joint_list: list["mujoco_t.MjsJoint"] = []  # type: ignore
+        leg_i2_joint_list: list["mujoco_t.MjsJoint"] = []  # type: ignore
+        leg_i1_site_list: list["mujoco_t.MjsSite"] = []  # type: ignore
+        leg_i2_site_list: list["mujoco_t.MjsSite"] = []  # type: ignore
 
         for index12, (
             a_ix_in_r,
@@ -277,8 +374,8 @@ class RedundantR3LegStewartKinematics(AbstractManipulator[SE3R3, Vec9], MuJoCoMi
                 eq.name1 = site_joint.name
                 eq.name2 = ee_site.name
                 eq.objtype = mujoco.mjtObj.mjOBJ_SITE  # type: ignore
-                joint_list.append(leg_joint)
-                site_list.append(site_joint)
+                joint_list.append(leg_joint)  # type: ignore
+                site_list.append(site_joint)  # type: ignore
 
         for i, leg_i1_joint in enumerate(leg_i1_joint_list, 1):
             spec.add_actuator(
@@ -312,7 +409,17 @@ class RedundantR3LegStewartKinematics(AbstractManipulator[SE3R3, Vec9], MuJoCoMi
     def mj_spec_model_data(
         self, x0: SE3R3, *args, **kwargs
     ) -> tuple["mujoco_t.MjSpec", "mujoco_t.MjModel", "mujoco_t.MjData"]:  # type: ignore
-        spec = self.mj_spec()
+        """
+        Args:
+            x0 (SE3R3): Initial task coordinates $\\mathrm{SE}(3) \\times \\mathbb{R}^3$
+            *args: Additional arguments for `mj_spec`.
+            **kwargs: Additional keyword arguments for `mj_spec`.
+
+        Returns:
+            tuple["mujoco_t.MjSpec", "mujoco_t.MjModel", "mujoco_t.MjData"]: `MjModel` and `MjData` initialized at the given task coordinates, along with `MjSpec`.
+        """
+
+        spec = self.mj_spec(*args, **kwargs)
         spec.body("body_ee").pos = x0.pose.translation().tolist()
         spec.body("body_ee").quat = x0.pose.rotation().parameters().tolist()
         model = spec.compile()  # type: ignore

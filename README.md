@@ -1,8 +1,12 @@
 # SE3-RPKM
 
-A collection of spatial (DOF>=6) Redundant Parallel Kinematic Machines (RPKMs), with differentiable kinematics modeling in Lie groups, implemented in JAX.
+`SE3-RPKM` is a collection of spatial (DOF >= 6) redundant parallel kinematic machines (RPKMs) with differentiable Lie group kinematics in `JAX`. The repo also includes redundancy-resolution examples and `MuJoCo`/`MJX` simulations.
 
-Examples include redundancy resolution algorithms and simulation in MuJoCo/MJX.
+## Highlights
+
+- Lie group modeling for $\mathrm{SE}(3)$ and related redundant structures, built on [jaxlie](https://github.com/brentyi/jaxlie).
+- Differentiable kinematics suitable for optimization and learning.
+- Ready-to-run examples with teleoperation utilities.
 
 ## Installation
 
@@ -12,32 +16,58 @@ Examples include redundancy resolution algorithms and simulation in MuJoCo/MJX.
 pip install git+https://github.com/EzekielDaun/se3-rpkm.git
 ```
 
-### Development & Examples Try-out
+### Development & Examples
+
+This project uses [`Pixi`](https://pixi.sh/) as the development package manager.
+
+Clone this repository and install all dependencies:
 
 ```bash
 git clone https://github.com/EzekielDaun/se3-rpkm.git && cd se3-rpkm
 pixi install --all
 ```
 
-## List of supported RPKMs:
+## Run Examples
 
-- Redundant Stewart Platform
-  - [x] $\mathrm{SE}(3) \times \mathrm{SO}(2)^3$ [^1] `pixi run se3so23-stewart`
-  - [x] $\mathrm{SE}(3) \times \mathrm{SO}(2)^2$ [^2] `pixi run se3so22-stewart`
-  - [ ] $\mathrm{SE}(3) \times \mathbb{R}^3$ [^3]
-- 3-SR Platform $(\mathrm{SE}(3) \times \mathrm{SO}(2)^3)$
-  - [x] 3-PPPSR [^5] `pixi run se3so23-sr-platform-basic-continuous`
-  - [x] 3-(R(RR-RRR)SR) [^4] `pixi run se3so23-sr-platform-rrr-serial`
+1. Install with `Pixi`: `pixi install --all`.
+2. Start a twist publisher in a separate terminal:
+   - `pixi run keyboard-twist-publisher`
+   - `pixi run gamepad-twist-publisher`
+3. Run a `MuJoCo` example from the supported list below, for example:
+   - `pixi run se3so23-stewart`
+
+## Supported RPKMs
+
+### Redundant Stewart Platforms
+
+- [^1] $\mathrm{SE}(3) \times \mathrm{SO}(2)^3$ `pixi run se3so23-stewart`
+  ![se3so23 (6+3) DoF redundant Stewart platform](./assets/se3so23-stewart.gif)
+- [^2] $\mathrm{SE}(3) \times \mathrm{SO}(2)^2$ `pixi run se3so22-stewart`
+  ![se3so22 (6+2) DoF redundant Stewart platform](./assets/se3so22-stewart.gif)
+- [^3] $\mathrm{SE}(3) \times \mathbb{R}^3$ `pixi run se3r3-stewart`
+  ![se3r3 (6+3) DoF redundant Stewart platform](./assets/se3r3-stewart.gif)
+
+### 3-SR Platforms $(\mathrm{SE}(3) \times \mathrm{SO}(2)^3)$
+
+- [^4] 3-(R(RR-RRR)SR) `pixi run se3so23-sr-platform-rrr-serial`
+  ![3-(R(RR-RRR)SR) (6+3) DoF 3-SR platform](./assets/se3so23-sr-platform-rrr-serial.gif)
+- [^5] 3-PPPSR `pixi run se3so23-sr-platform-basic-continuous`
+  ![3-PPPSR (6+3) DoF 3-SR platform](./assets/se3so23-sr-platform-basic-continuous.gif)
+
+### Miscellaneous
+
+- [^6] 5-PSS-S-4PSS $(\mathrm{SE}(3) \times \mathrm{SO}(3))$ `pixi run se3so3-5pss-s-4pss`
+  ![5-PSS-S-4PSS (6+3) DoF manipulator](./assets/se3so3-5pss-s-4pss.gif)
 
 [^1]: https://doi.org/10.1109/TRO.2016.2516025
 [^2]: https://doi.org/10.1016/j.mechmachtheory.2022.105015
 [^3]: https://doi.org/10.3390/act12030120
 [^4]: https://doi.org/10.1109/TRO.2020.3043723
 [^5]: https://doi.org/10.1007/978-3-031-95489-4_18
+[^6]: https://doi.org/10.1007/978-3-031-95489-4_10
 
-## Run Examples
+## Build Your Own RPKM
 
-1. Install with all features
-2. Start a twist publisher
-   Run `pixi run keyboard-twist-publisher` or `pixi run gamepad-twist-publisher` in a separate terminal to publish desired end-effector twists.
-3. In another terminal, run a MuJoCo example
+Define an implicit kinematic constraint function that maps the extended task variables (i.e., $\mathrm{SE}(3)$ pose plus redundancy) and joint variables to zero: $f(x, q) = \mathbf{0}$.
+
+Implement this function in Python and override the [abstract method](./src/se3_rpkm/lie_group_kinematics.py#L36) with `pytree` data structures. Tangent space Jacobians are then computed automatically.

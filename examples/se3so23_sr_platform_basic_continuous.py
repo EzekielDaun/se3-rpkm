@@ -51,18 +51,13 @@ def mjx_step(*args, **kwargs):
 
 if __name__ == "__main__":
     dimension = DimensionJIT(
-        revolute_se3_transforms=tuple(
-            (
-                SE3.from_rotation(
-                    SO3.from_z_radians(jnp.array([0.0, 2 * jnp.pi / 3, 4 * jnp.pi / 3]))
-                )
-                @ SE3.from_translation(jnp.array([0.5, 0.0, 0.0]))
+        revolute_se3=(
+            SE3.from_rotation(
+                SO3.from_z_radians(jnp.array([0.0, 2 * jnp.pi / 3, 4 * jnp.pi / 3]))
             )
-            .parameters()
-            .flatten()
-            .tolist()
+            @ SE3.from_translation(jnp.array([0.5, 0.0, 0.0]))
         ),
-        redundant_links_tuple=tuple([0.2] * 3),
+        redundant_links=jnp.array([0.2] * 3),
     )
 
     x0 = SE3SO23(

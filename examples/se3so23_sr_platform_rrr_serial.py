@@ -22,8 +22,8 @@ from se3_rpkm.sr_platform import (
 @jdc.pytree_dataclass(frozen=True)
 class JITDimension(SE3SO23SRPlatform3RSerialArmKinematics):
     @jax.jit
-    def ik_optx(self, task_coord: SE3SO23, joint_coordinate: SO29) -> SO29:
-        return super().ik_optx(task_coord, joint_coordinate)
+    def ik_lm_optx(self, task_coord: SE3SO23, joint_coordinate: SO29) -> SO29:
+        return super().ik_lm_optx(task_coord, joint_coordinate)
 
     def loss(self, x: SE3SO23, q: SO29):
         ik_jac = self.ik_jacobian(x, q)
@@ -83,15 +83,13 @@ if __name__ == "__main__":
     )
 
     platform_dimension = SE3SO23SRPlatformKinematics(
-        revolute_se3_transforms=tuple(
-            (
-                SE3.from_rotation(
-                    SO3.from_z_radians(jnp.array([0.0, 2 * jnp.pi / 3, 4 * jnp.pi / 3]))
-                )
-                @ SE3.from_translation(jnp.array([125e-3, 0.0, 0.0]))
-            ).parameters()
+        revolute_se3=(
+            SE3.from_rotation(
+                SO3.from_z_radians(jnp.array([0.0, 2 * jnp.pi / 3, 4 * jnp.pi / 3]))
+            )
+            @ SE3.from_translation(jnp.array([125e-3, 0.0, 0.0]))
         ),
-        redundant_links_tuple=tuple([50e-3] * 3),
+        redundant_links=jnp.array([50e-3] * 3),
     )
 
     dimension = JITDimension(
@@ -105,7 +103,7 @@ if __name__ == "__main__":
     )
     q0 = SO2.from_radians(jnp.array([0.0, -jnp.pi / 2, 0.0] * 3))
     for _ in range(10):
-        q0 = dimension.ik_optx(x0, q0).normalize()
+        q0 = dimension.ik_lm_optx(x0, q0).normalize()
 
     # spec, model, data = mjcf_spec_platform_and_rrr_serial_model_data(dimension, x0, q0)
     spec, model, data = dimension.mj_spec_model_data(x0, q0)
@@ -170,7 +168,7 @@ if __name__ == "__main__":
                 pose=x.pose @ SE3.exp(se3_log),
                 rdof=x.rdof @ SO2.exp(-1e-3 * grad_rdof.reshape(3, 1)),
             )
-            q = dimension.ik_optx(x, q).normalize()
+            q = dimension.ik_lm_optx(x, q).normalize()
             data.ctrl = q.as_radians().flatten()
 
             if (

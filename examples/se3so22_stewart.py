@@ -68,7 +68,7 @@ if __name__ == "__main__":
         l_j=jnp.array([beta, beta]) * 0.15,
     )
     x0 = SE3SO22(
-        SE3.from_translation(jnp.array([0.0, 0.0, beta * 2.5])),
+        SE3.from_translation(jnp.array([0.0, 0.0, beta * 1.5])),
         SO2.from_radians(jnp.deg2rad(jnp.array([45.0, 135.0]))),
     )
 
@@ -79,7 +79,9 @@ if __name__ == "__main__":
         (_, loss), x = DIMENSION.damped_newton_step_fn((x, 0.0), x0.pose, factor=1e-2)
     print("JIT warm up done.")
 
-    spec, model, data = DIMENSION.mj_spec_model_data(x0)
+    spec, model, data = DIMENSION.mj_spec_model_data(
+        x0, act_lower_length=0.4, act_upper_length=0.7
+    )
 
     mx = mjx.put_model(model)
     dx = mjx.put_data(model, data)

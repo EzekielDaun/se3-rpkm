@@ -3,14 +3,15 @@
         { name = "Yifei Liu", email = "34564223+EzekielDaun@users.noreply.github.com" },
     ]
     dependencies = ["jax", "jaxlie", "jaxtyping", "optimistix"]
-    description = "Add your description here"
+    description = "`SE3-RPKM` is a collection of spatial (DOF >= 6) redundant parallel kinematic machines (RPKMs) with differentiable Lie group kinematics in `JAX`."
     name = "se3-rpkm"
     readme = "README.md"
     requires-python = ">=3.10, <3.14"
-    version = "0.1.0"
+    version = "0.0.1"
 
 [project.optional-dependencies]
-    dev = ["iceoryx2==0.7.0", "mujoco-mjx>=3.3.7,<4.0.0", "warp-lang"]
+    dev      = ["click<=8.2.1", "pdoc"]
+    examples = ["iceoryx2==0.7.0", "mujoco-mjx>=3.3.7,<4.0.0", "warp-lang"]
 
 [build-system]
     build-backend = "uv_build"
@@ -24,23 +25,35 @@
     se3-rpkm = { path = ".", editable = true }
 
 [tool.pixi.environments]
-    dev = { features = ["dev"], solve-group = "default" }
+    dev      = { features = ["dev", "examples"], solve-group = "default" }
+    examples = { features = ["examples"], solve-group = "default" }
 
-[tool.pixi.feature.dev.dependencies]
+[tool.pixi.feature.examples.dependencies]
     rust = ">=1.81"
 
-[tool.pixi.feature.dev.tasks]
+[tool.pixi.feature.examples.tasks]
     # Twist publishers
     gamepad-twist-publisher  = "cd examples/gamepad-twist-publisher && cargo run --release"
     keyboard-twist-publisher = "cd examples/keyboard-twist-publisher && cargo run --release"
     # Mujoco examples
+    se3r3-stewart                        = "python examples/se3r3_stewart.py"
     se3so22-stewart                      = "python examples/se3so22_stewart.py"
     se3so23-sr-platform-basic-continuous = "python examples/se3so23_sr_platform_basic_continuous.py"
     se3so23-sr-platform-rrr-serial       = "python examples/se3so23_sr_platform_rrr_serial.py"
     se3so23-stewart                      = "python examples/se3so23_stewart.py"
+    se3so3-5pss-s-4pss                   = "python examples/se3so3_5pss_s_4pss.py"
 
-[tool.pixi.feature.dev.target.osx-arm64.tasks] # MacOS needs to use mjpython for MuJoCo examples
+[tool.pixi.feature.examples.target.osx-arm64.tasks] # MacOS needs to use mjpython for MuJoCo examples
+    se3r3-stewart                        = "mjpython examples/se3r3_stewart.py"
     se3so22-stewart                      = "mjpython examples/se3so22_stewart.py"
     se3so23-sr-platform-basic-continuous = "mjpython examples/se3so23_sr_platform_basic_continuous.py"
     se3so23-sr-platform-rrr-serial       = "mjpython examples/se3so23_sr_platform_rrr_serial.py"
     se3so23-stewart                      = "mjpython examples/se3so23_stewart.py"
+    se3so3-5pss-s-4pss                   = "mjpython examples/se3so3_5pss_s_4pss.py"
+
+[tool.pixi.feature.dev.dependencies]
+    nodejs = "*" # pdoc needs this to precompile search index
+
+[tool.pixi.feature.dev.tasks]
+    docs       = "PDOC_ALLOW_EXEC=1 pixi run pdoc se3_rpkm -d google --math -o ./docs"
+    docs-serve = "PDOC_ALLOW_EXEC=1 pixi run pdoc se3_rpkm -d google --math"

@@ -11,3 +11,12 @@ wheels/
 # pixi environments
 .pixi/*
 !.pixi/config.toml
+
+# macOS
+.DS_Store
+
+# Large assets
+assets/*.mov
+
+# Docs (pdoc generated)
+docs/

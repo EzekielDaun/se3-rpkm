@@ -6,7 +6,7 @@ import jax_dataclasses as jdc
 import jaxlie
 from jax.tree_util import Partial
 from jaxlie import SE3, SO2, SO3
-from jaxtyping import Float
+from jaxtyping import Array, Float
 
 from .data_types import (
     SE3SO22,
@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
 
 def _jax_normalize_rows(X: jnp.ndarray) -> jnp.ndarray:
+    """Normalize each row vector to unit length."""
     norms = jnp.linalg.norm(X, axis=1, keepdims=True)  # shape (n, 1)
     return X / norms
 
@@ -44,31 +45,72 @@ J = TypeVar("J", bound=Float)
 class RedundantSO2LegStewartKinematicsCommon(
     Generic[T, J], AbstractManipulator[T, J], MuJoCoMixin
 ):
-    # M non-redundant legs, N redundant legs, M + 2N linear actuators
-    a_i: Float  # (M, 3), 3 row vectors
-    v_i: Float  # (M, 3)
-    a_j1: Float  # (N, 3)
-    a_j2: Float  # (N, 3)
-    v_j: Float  # (N, 3)
-    l_j: Float  # (N,)
+    """
+    Common kinematics for a Stewart platform with M non-redundant legs and N $\\mathrm{SO}(2)$ redundant legs.
 
-    def b_i(self, pose: SE3) -> Float:  # (M, 3)
+    Coordinates are row vectors.
+    """
+
+    # M non-redundant legs, N redundant legs, M + 2N linear actuators
+    a_i: Float[Array, "M 3"]  # noqa: F722
+    """Base attachment points for non-redundant legs, in world frame."""
+    v_i: Float[Array, "M 3"]  # noqa: F722
+    """End-effector attachment points for non-redundant legs, in end-effector frame."""
+    a_j1: Float[Array, "N 3"]  # noqa: F722
+    """Base attachment points for redundant leg endpoint 1, in world frame."""
+    a_j2: Float[Array, "N 3"]  # noqa: F722
+    """Base attachment points for redundant leg endpoint 2, in world frame."""
+    v_j: Float[Array, "N 3"]  # noqa: F722
+    """End-effector attachment points for redundant legs, in end-effector frame."""
+    l_j: Float[Array, "N"]  # noqa: F821
+    """Link lengths for redundant legs."""
+
+    def b_i(self, pose: SE3) -> Float[Array, "M 3"]:  # noqa: F722
+        """
+        Args:
+            pose (SE3): End-effector pose.
+
+        Returns:
+            Float: End-effector attachment points for non-redundant legs in world frame.
+        """
         return pose.apply(self.v_i)
 
-    def b_j(self, pose: SE3) -> Float:  # (N, 3)
+    def b_j(self, pose: SE3) -> Float[Array, "N 3"]:  # noqa: F722
+        """
+        Args:
+            pose (SE3): End-effector pose.
+
+        Returns:
+            Float: End-effector attachment points for redundant legs in world frame.
+        """
         return pose.apply(self.v_j)
 
     @property
-    def e_j(self) -> Float:  # (N, 3)
+    def e_j(self) -> Float[Array, "N 3"]:  # noqa: F722
+        """Unit vectors along each redundant leg axis in world frame."""
         return _jax_normalize_rows(self.a_j2 - self.a_j1)
 
-    def k_j(self, pose: SE3) -> Float:  # (N, 3)
+    def k_j(self, pose: SE3) -> Float[Array, "N 3"]:  # noqa: F722
+        """
+        Args:
+            pose (SE3): End-effector pose.
+
+        Returns:
+            Float: Unit vectors orthogonal to redundant leg axes, in world frame.
+        """
         e_j = self.e_j
         b_j = self.b_j(pose)
         z_j = _jax_normalize_rows(jnp.cross(e_j, (b_j - self.a_j1), axis=1))
         return jnp.cross(z_j, e_j, axis=1)
 
-    def r_j(self, task_coordinate: T) -> Float:  # (N, 3)
+    def r_j(self, task_coordinate: T) -> Float[Array, "N 3"]:  # noqa: F722
+        """
+        Args:
+            task_coordinate (T): Task coordinates $\\mathrm{SE}(3) \\times \\mathrm{SO}(2)^N$.
+
+        Returns:
+            Float: Redundant leg intermediate points in world frame.
+        """
         e_j = self.e_j
         k_j = self.k_j(task_coordinate.pose)
         b_j = self.b_j(task_coordinate.pose)
@@ -78,25 +120,54 @@ class RedundantSO2LegStewartKinematicsCommon(
             b_j + (e_j * cos_sin[:, 0:1] + -k_j * cos_sin[:, 1:2]) * self.l_j[:, None]
         )
 
-    def ik(self, task_coordinate: T) -> Float:  # (M + 2N,)
+    def ik(self, task_coordinate: T) -> J:  # noqa: F722
+        """
+        Args:
+            task_coordinate (T): Task coordinates $\\mathrm{SE}(3) \\times \\mathrm{SO}(2)^N$.
+
+        Returns:
+            Float: Joint coordinates (non-redundant leg lengths + redundant leg `j1` lengths + redundant leg `j2` lengths).
+        """
         r_j = self.r_j(task_coordinate)
         rho_i = jnp.linalg.norm(self.b_i(task_coordinate.pose) - self.a_i, axis=1)
         rho_j1 = jnp.linalg.norm(r_j - self.a_j1, axis=1)
         rho_j2 = jnp.linalg.norm(r_j - self.a_j2, axis=1)
-        return jnp.concatenate([rho_i, rho_j1, rho_j2]).flatten()
+        return jnp.concatenate([rho_i, rho_j1, rho_j2]).flatten()  # type: ignore
 
     @override
     def kinematic_constraints(self, task_coord: T, joint_coord: J) -> J:
         return self.ik(task_coord) - joint_coord
 
     def loss_func(self, x0: T):
+        """
+        Args:
+            x0 (T): Task coordinates.
+
+        Returns:
+            Float: Negative log-determinant of the IK Jacobian.
+        """
         ik_jac = self.ik_jacobian(x0, self.ik(x0))
         return -jnp.linalg.slogdet(ik_jac.T @ ik_jac)[1]
 
     def loss_grad(self, x0: T):
+        """
+        Args:
+            x0 (T): Task coordinates.
+
+        Returns:
+            T: Gradient of the loss with respect to task coordinates.
+        """
         return jaxlie.manifold.grad(Partial(self.loss_func))(x0)
 
     def loss_hessian(self, x0: T):
+        """
+        Args:
+            x0 (T): Task coordinates.
+
+        Returns:
+            Float: Hessian matrix of the loss with respect to task coordinates.
+        """
+
         def flat_func(x: T) -> jnp.ndarray:
             grad = self.loss_grad(x)
             return jnp.concatenate([grad.pose, grad.rdof.ravel()])
@@ -113,6 +184,15 @@ class RedundantSO2LegStewartKinematicsCommon(
         return jnp.hstack([pose_block, rdof_block])
 
     def damped_newton_step_fn(self, carry: tuple[T, float], pose: SE3, factor: float):
+        """
+        Args:
+            carry (tuple[T, float]): Current task coordinate and accumulated loss.
+            pose (SE3): Fixed end-effector pose for this step.
+            factor (float): Damping factor.
+
+        Returns:
+            tuple[tuple[T, float], T]: Updated carry and new task coordinate.
+        """
         x_last, loss_accum = carry
         x = type(x_last)(pose=pose, rdof=x_last.rdof)  # type: ignore
 
@@ -137,6 +217,16 @@ class RedundantSO2LegStewartKinematicsCommon(
         act_upper_radius=0.01,
         act_upper_length=0.5,
     ) -> "mujoco_t.MjSpec":  # type: ignore
+        """
+        Args:
+            act_lower_radius (float): Radius of the actuator lower capsule. Defaults to 0.02.
+            act_lower_length (float): Length of the actuator lower capsule. Defaults to 0.15.
+            act_upper_radius (float): Radius of the actuator upper capsule. Defaults to 0.01.
+            act_upper_length (float): Length of the actuator upper capsule. Defaults to 0.5.
+
+        Returns:
+            mujoco_t.MjSpec: The MJCF specification of the mechanism.
+        """
         MuJoCoMixin._check_mujoco_availability()
         spec = mujoco.MjSpec()  # type: ignore
         spec.modelname = "se3so2x_stewart"
@@ -362,9 +452,19 @@ class RedundantSO2LegStewartKinematicsCommon(
 
     @override
     def mj_spec_model_data(
-        self, x0: T
+        self, x0: T, *args, **kwargs
     ) -> tuple["mujoco_t.MjSpec", "mujoco_t.MjModel", "mujoco_t.MjData"]:  # type: ignore
-        spec = self.mj_spec()
+        """
+        Args:
+            x0 (T): Initial task coordinates.
+            *args: Additional arguments for `mj_spec`.
+            **kwargs: Additional keyword arguments for `mj_spec`.
+
+        Returns:
+            tuple[mujoco_t.MjSpec, mujoco_t.MjModel, mujoco_t.MjData]: MJCF spec, model,
+            and data initialized at the provided configuration.
+        """
+        spec = self.mj_spec(*args, **kwargs)
         spec.body("body_ee").pos = x0.pose.translation().tolist()
         spec.body("body_ee").quat = x0.pose.rotation().parameters().tolist()
         model = spec.compile()  # type: ignore
@@ -390,8 +490,8 @@ class RedundantSO2LegStewartKinematicsCommon(
 
 
 class SE3SO22StewartKinematics(RedundantSO2LegStewartKinematicsCommon[SE3SO22, Vec8]):
-    pass
+    """Specialization for $\\mathrm{SE}(3) \\times \\mathrm{SO}(2)^2$ task coordinates with 8 prismatic linear actuators."""
 
 
 class SE3SO23StewartKinematics(RedundantSO2LegStewartKinematicsCommon[SE3SO23, Vec9]):
-    pass
+    """Specialization for $\\mathrm{SE}(3) \\times \\mathrm{SO}(2)^3$ task coordinates with 9 prismatic linear actuators."""

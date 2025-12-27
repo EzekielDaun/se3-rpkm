@@ -7,7 +7,7 @@ from jax.tree_util import Partial
 from jaxlie import SE3, SO2, SO3
 from jaxtyping import Float
 
-from .data_types import SE3SO23, SO23, SO29, Mat3x3, MuJoCoMixin, Vec3, Vec9
+from .data_types import SE3SO23, SE33, SO23, SO29, Mat3x3, MuJoCoMixin, Vec3, Vec9
 from .lie_group_kinematics import AbstractManipulator
 
 try:
@@ -25,23 +25,31 @@ if TYPE_CHECKING:
 
 @jdc.pytree_dataclass(frozen=True)
 class SE3SO23SRPlatformKinematics(AbstractManipulator[SE3SO23, Vec9]):
+    """
+    Kinematics model for an $\\mathrm{SE}(3) \\times \\mathrm{SO}(2)^3$ spatial redundancy platform.
+
+    Coordinates are row vectors.
+    """
+
     # 3*7 floats, x-axis as angle 0, z-axis as revolute axis
-    revolute_se3_transforms: tuple[float, ...]
-    redundant_links_tuple: tuple[float, ...]  # 3 floats
+    revolute_se3: SE33
+    """Batch of 3 $\\mathrm{SE}(3)$ SE3 transforms for 3 revolute joint frames, with local +Z axis as revolute axis, and +X direction as angle 0."""
+    redundant_links: Vec3
+    """Lengths of the 3 redundant links."""
 
     @property
-    def revolute_se3(self) -> SE3:
-        return SE3(jnp.array(self.revolute_se3_transforms).reshape(3, 7))
-
-    @property
-    def redundant_links(self) -> Vec3:
-        return jnp.array(self.redundant_links_tuple)
-
-    @property
-    def b_i(self) -> Mat3x3:
+    def v_i(self) -> Mat3x3:
+        """End-effector revolute axis center points in end-effector frame."""
         return self.revolute_se3.translation()
 
     def s_i(self, x: SE3SO23) -> Mat3x3:
+        """
+        Args:
+            x (SE3SO23): Task coordinates $\\mathrm{SE}(3) \\times \\mathrm{SO}(2)^3$.
+
+        Returns:
+            Mat3x3: Redundant link tip positions in world frame.
+        """
         return x.pose.apply(
             (
                 self.revolute_se3
@@ -58,6 +66,13 @@ class SE3SO23SRPlatformKinematics(AbstractManipulator[SE3SO23, Vec9]):
         )
 
     def ik(self, task_coord: SE3SO23) -> Vec9:
+        """
+        Args:
+            task_coord (SE3SO23): Task coordinates $\\mathrm{SE}(3) \\times \\mathrm{SO}(2)^3$.
+
+        Returns:
+            Vec9: Joint coordinates (stacked redundant link tip positions, sequence: x1, y1, z1, x2, y2, z2, x3, y3, z3).
+        """
         return self.s_i(task_coord).flatten()
 
     @override
@@ -65,14 +80,35 @@ class SE3SO23SRPlatformKinematics(AbstractManipulator[SE3SO23, Vec9]):
         return self.ik(task_coord) - joint_coord
 
     def loss(self, x: SE3SO23) -> Float:
+        """
+        Args:
+            x (SE3SO23): Task coordinates.
+
+        Returns:
+            Float: Negative log-determinant of the IK Jacobian metric.
+        """
         jac = self.ik_jacobian(x, self.ik(x))
         return -jnp.log(jnp.linalg.det(jac @ jac.T))
 
     def loss_grad(self, x: SE3SO23):
+        """
+        Args:
+            x (SE3SO23): Task coordinates.
+
+        Returns:
+            SE3SO23: Gradient of the loss with respect to task coordinates.
+        """
         return jaxlie.manifold.grad(Partial(self.loss))(x)
 
 
 def mjcf_spec_platform(dimension: SE3SO23SRPlatformKinematics) -> "mujoco_t.MjSpec":  # type: ignore
+    """
+    Args:
+        dimension (SE3SO23SRPlatformKinematics): Platform kinematic parameters.
+
+    Returns:
+        mujoco_t.MjSpec: MJCF spec for the platform and a list of link sites.
+    """
     MuJoCoMixin._check_mujoco_availability()
 
     spec = mujoco.MjSpec()  # type: ignore
@@ -90,8 +126,8 @@ def mjcf_spec_platform(dimension: SE3SO23SRPlatformKinematics) -> "mujoco_t.MjSp
     # ee_body.add_freejoint()
 
     ## give EE a triangle plate mesh
-    vertices_top = dimension.b_i + jnp.array([0, 0, 0.01])
-    vertices_bottom = dimension.b_i - jnp.array([0, 0, 0])
+    vertices_top = dimension.v_i + jnp.array([0, 0, 0.01])
+    vertices_bottom = dimension.v_i - jnp.array([0, 0, 0])
     vertices = jnp.vstack([vertices_top, vertices_bottom]).astype(jnp.float32)
     mesh = spec.add_mesh(name="triangle_mesh")
     mesh.uservert = vertices.flatten().tolist()
@@ -140,8 +176,14 @@ def mjcf_spec_platform(dimension: SE3SO23SRPlatformKinematics) -> "mujoco_t.MjSp
 
 @jdc.pytree_dataclass(frozen=True)
 class SE3SO23SRPlatformGantryKinematics(SE3SO23SRPlatformKinematics, MuJoCoMixin):
+    """SR platform kinematics with 3 gantry legs."""
+
     @override
     def mj_spec(self) -> "mujoco_t.MjSpec":  # type: ignore
+        """
+        Returns:
+            mujoco_t.MjSpec: The MJCF specification of the mechanism.
+        """
         MuJoCoMixin._check_mujoco_availability()
 
         spec, site_list = mjcf_spec_platform(self)
@@ -211,6 +253,14 @@ class SE3SO23SRPlatformGantryKinematics(SE3SO23SRPlatformKinematics, MuJoCoMixin
     def mj_spec_model_data(
         self, x0: SE3SO23
     ) -> tuple["mujoco_t.MjSpec", "mujoco_t.MjModel", "mujoco_t.MjData"]:  # type: ignore
+        """
+        Args:
+            x0 (SE3SO23): Initial task coordinates.
+
+        Returns:
+            tuple[mujoco_t.MjSpec, mujoco_t.MjModel, mujoco_t.MjData]: MJCF spec, model,
+            and data initialized at the provided configuration.
+        """
         MuJoCoMixin._check_mujoco_availability()
 
         spec = self.mj_spec()
@@ -269,6 +319,8 @@ class RRRSerialArmKinematics(AbstractManipulator[Vec3, SO23]):
 class SE3SO23SRPlatform3RSerialArmKinematics(
     AbstractManipulator[SE3SO23, SO29], MuJoCoMixin
 ):
+    """Kinematic of SR platform with three 3R serial arms as legs."""
+
     platform: SE3SO23SRPlatformKinematics
     serial_arm: tuple[
         RRRSerialArmKinematics, RRRSerialArmKinematics, RRRSerialArmKinematics
@@ -276,6 +328,14 @@ class SE3SO23SRPlatform3RSerialArmKinematics(
 
     @override
     def kinematic_constraints(self, task_coord: SE3SO23, joint_coord: SO29) -> Vec9:
+        """
+        Args:
+            task_coord (SE3SO23): Task coordinates.
+            joint_coord (SO29): Joint coordinates for the three 3R arms.
+
+        Returns:
+            Vec9: Constraint residuals between platform IK and arm FK.
+        """
         platform_ik_r9 = self.platform.ik(task_coord)
 
         leg_fk_r9 = jnp.concatenate(
@@ -289,6 +349,10 @@ class SE3SO23SRPlatform3RSerialArmKinematics(
 
     @override
     def mj_spec(self) -> "mujoco_t.MjSpec":  # type: ignore
+        """
+        Returns:
+            mujoco_t.MjSpec: The MJCF specification of the mechanism.
+        """
         MuJoCoMixin._check_mujoco_availability()
         spec, site_list = mjcf_spec_platform(self.platform)
         GAIN = 70
@@ -428,6 +492,15 @@ class SE3SO23SRPlatform3RSerialArmKinematics(
     def mj_spec_model_data(
         self, x0: SE3SO23, q0: SO29
     ) -> tuple["mujoco_t.MjSpec", "mujoco_t.MjModel", "mujoco_t.MjData"]:  # type:ignore
+        """
+        Args:
+            x0 (SE3SO23): Initial task coordinates.
+            q0 (SO29): Initial joint coordinates.
+
+        Returns:
+            tuple[mujoco_t.MjSpec, mujoco_t.MjModel, mujoco_t.MjData]: MJCF spec, model,
+            and data initialized at the provided configuration.
+        """
         MuJoCoMixin._check_mujoco_availability()
 
         spec = self.mj_spec()
