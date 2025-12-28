@@ -3197,7 +3197,7 @@ packages:
 - pypi: ./
   name: se3-rpkm
   version: 0.0.1
-  sha256: 7f70e003d008d0de456db18cbcaa453aebcd142d10654c9e9269cff7bcd96ada
+  sha256: 8440703e58de058ce5c05a444c463da422a725bd6674f0af0112aa8e15a2e045
   requires_dist:
   - jax
   - jaxlie

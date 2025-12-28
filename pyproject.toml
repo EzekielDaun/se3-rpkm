@@ -55,5 +55,5 @@
     nodejs = "*" # pdoc needs this to precompile search index
 
 [tool.pixi.feature.dev.tasks]
-    docs       = "PDOC_ALLOW_EXEC=1 pixi run pdoc se3_rpkm -d google --math -o ./docs"
+    docs       = "PDOC_ALLOW_EXEC=1 pixi run pdoc se3_rpkm -d google --math -o ./docs --no-show-source"
     docs-serve = "PDOC_ALLOW_EXEC=1 pixi run pdoc se3_rpkm -d google --math"
