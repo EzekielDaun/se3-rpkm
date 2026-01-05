@@ -158,10 +158,9 @@ def mjcf_spec_platform(dimension: SE3SO23SRPlatformKinematics) -> "mujoco_t.MjSp
         link_body.add_geom(  # revolute link
             name=f"link_geom{i + 1}",
             type=mujoco.mjtGeom.mjGEOM_CAPSULE,  # type: ignore
-            size=[REVOLUTE_LINK_RADIUS, dimension.redundant_links[i] / 2, 0.0],
             rgba=[0.5, 0.5, 0.5, 1],
-            pos=[dimension.redundant_links[i] / 2, 0, 0],
-            quat=SO3.from_y_radians(jnp.pi / 2).parameters(),
+            size=[REVOLUTE_LINK_RADIUS, 0, 0],
+            fromto=[0, 0, 0, dimension.redundant_links[i], 0, 0],
         )
         site_list.append(
             link_body.add_site(

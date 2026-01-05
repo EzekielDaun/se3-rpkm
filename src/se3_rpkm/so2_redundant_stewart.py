@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import jax_dataclasses as jdc
 import jaxlie
 from jax.tree_util import Partial
-from jaxlie import SE3, SO2, SO3
+from jaxlie import SE3, SO2
 from jaxtyping import Array, Float
 
 from .data_types import (
@@ -301,18 +301,12 @@ class RedundantSO2LegStewartKinematicsCommon(
                 size=[act_upper_radius * 1.5, 0.0, 0.0],
                 rgba=[1.0, 0.0, 0.0, 1.0],
             )
-            nr_leg_body0 = spec.worldbody.add_body(
-                pos=a_i,
-                mass=mujoco.mjMINVAL,  # type: ignore
-                inertia=mujoco.mjMINVAL * jnp.ones(3),  # type: ignore
-            )
-            nr_leg_body0.add_joint(
+            nr_leg_body1 = spec.worldbody.add_body(pos=a_i)
+            nr_leg_body1.add_joint(
                 type=mujoco.mjtJoint.mjJNT_HINGE,  # type: ignore
                 axis=[1, 0, 0],
                 group=5,
             )
-
-            nr_leg_body1 = nr_leg_body0.add_body()
             nr_leg_body1.add_joint(
                 type=mujoco.mjtJoint.mjJNT_HINGE,  # type: ignore
                 axis=[0, 1, 0],
@@ -320,10 +314,9 @@ class RedundantSO2LegStewartKinematicsCommon(
             )
             nr_leg_body1.add_geom(
                 type=mujoco.mjtGeom.mjGEOM_CAPSULE,  # type: ignore
-                size=[act_lower_radius, act_lower_length / 2, 0],
                 rgba=[0.5, 0.5, 0.5, 0.5],
-                pos=[0, 0, act_lower_length / 2],
-                # quat=[0.7071, 0.0, 0.7071, 0.0],
+                size=[act_lower_radius, 0, 0],
+                fromto=[0, 0, 0, 0, 0, act_lower_length],
             )
 
             nr_leg_body2 = nr_leg_body1.add_body()
@@ -345,9 +338,9 @@ class RedundantSO2LegStewartKinematicsCommon(
             )
             nr_leg_body2.add_geom(
                 type=mujoco.mjtGeom.mjGEOM_CAPSULE,  # type: ignore
-                size=[act_upper_radius, act_upper_length / 2, 0],
                 rgba=[0.2, 0.2, 0.8, 0.9],
-                pos=[0, 0, -act_upper_length / 2],
+                size=[act_upper_radius, 0, 0],
+                fromto=[0, 0, 0, 0, 0, -act_upper_length],
             )
             site_nr_leg_i.append(nr_leg_body2.add_site(name=f"site_B{i + 1}_leg"))
 
@@ -359,15 +352,15 @@ class RedundantSO2LegStewartKinematicsCommon(
             r_revolute_body.add_freejoint()
             r_revolute_body.add_geom(
                 type=mujoco.mjtGeom.mjGEOM_CAPSULE,  # type: ignore
-                size=[act_upper_radius, l_j / 2, 0],
                 rgba=[0.5, 0.5, 0.5, 1],
-                pos=[0, 0, l_j / 2],
+                size=[act_upper_radius, 0, 0],
+                fromto=[0, 0, 0, 0, 0, l_j],
             )
             r_revolute_body.add_geom(
                 type=mujoco.mjtGeom.mjGEOM_CAPSULE,  # type: ignore
-                size=[act_upper_radius, l_j / 2, 0],
                 rgba=[0.5, 0.5, 0.5, 1],
-                quat=SO3.from_x_radians(jnp.pi / 2).parameters(),
+                size=[act_upper_radius, 0, 0],
+                fromto=[0, -l_j / 2, 0, 0, l_j / 2, 0],
             )
             site_r_leg_jx.append(
                 r_revolute_body.add_site(name=f"site_B{j + 1}x_leg", pos=[0, 0, l_j])
@@ -386,9 +379,9 @@ class RedundantSO2LegStewartKinematicsCommon(
                 )
                 leg_body.add_geom(
                     type=mujoco.mjtGeom.mjGEOM_CAPSULE,  # type: ignore
-                    size=[act_upper_radius, act_upper_length / 2, 0],
                     rgba=[0.2, 0.2, 0.8, 0.9],
-                    pos=[0, 0, -act_upper_length / 2],
+                    size=[act_upper_radius, 0, 0],
+                    fromto=[0, 0, 0, 0, 0, -act_upper_length],
                 )
 
                 leg_body_lower = leg_body.add_body()
@@ -400,9 +393,9 @@ class RedundantSO2LegStewartKinematicsCommon(
                 )
                 leg_body_lower.add_geom(
                     type=mujoco.mjtGeom.mjGEOM_CAPSULE,  # type: ignore
-                    size=[act_lower_radius, act_lower_length / 2, 0],
                     rgba=[0.5, 0.5, 0.5, 0.5],
-                    pos=[0, 0, act_lower_length / 2],
+                    size=[act_lower_radius, 0, 0],
+                    fromto=[0, 0, 0, 0, 0, act_lower_length],
                 )
                 site_lst.append(
                     leg_body_lower.add_site(
