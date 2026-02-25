@@ -1,15 +1,18 @@
-import time
+import numpy as np
 
-import iceoryx2 as iox2
 import jax
 import jax.numpy as jnp
 import jax_dataclasses as jdc
 import jaxlie
 import mujoco
-import mujoco.viewer as viewer
 from jaxlie import SE3, SO3
-from mujoco import mjx
-from teleop_types import Pose, Twist
+from simulation_runtime import (
+    SimulationCore,
+    StepControllerTrait,
+    TwistInput,
+    run_with_mujoco_viewer,
+)
+from teleop_types import Twist
 
 from se3_rpkm.data_types import SE3SO3, Vec9
 from se3_rpkm.se3so3_5pss_s_4pss import SE3SO3_5PSS_S_4PSS_Kinematics
@@ -22,34 +25,89 @@ class JITDimension(SE3SO3_5PSS_S_4PSS_Kinematics):
         return super().ik_lm_optx(task_coord, joint_coordinate)
 
     @jax.jit
-    def loss(self, x: SE3SO3, q: Vec9):
+    def loss(self, x: SE3SO3, q: Vec9) -> float:
         ik_jac = self.ik_jacobian(x, q)
-        return jnp.linalg.cond(ik_jac)
-        # return -jnp.linalg.slogdet((ik_jac.T) @ ik_jac)[1]
+        # return jnp.linalg.cond(ik_jac)
+        return -jnp.linalg.slogdet((ik_jac.T) @ ik_jac)[1]
 
     @jax.jit
     def loss_grad(self, x: SE3SO3, q: Vec9) -> SE3SO3:
         return jaxlie.manifold.grad(self.loss, argnums=0)(x, q)
 
 
-# MJX Simulation
-@jax.jit(donate_argnums=(0,), keep_unused=True)
-def mjx_set_data(dx, ctrl, act, xfrc_applied, qpos, qvel, time_):
-    return dx.tree_replace(
-        {
-            "ctrl": jnp.array(ctrl),
-            "act": jnp.array(act),
-            "xfrc_applied": jnp.array(xfrc_applied),
-            "qpos": jnp.array(qpos),
-            "qvel": jnp.array(qvel),
-            "time": jnp.array(time_),
-        }
-    )
+class SE3SO3_5PSS_4PSSController(StepControllerTrait):
+    def __init__(self, dimension: JITDimension, x0: SE3SO3, q0: Vec9) -> None:
+        self.dimension = dimension
+        self.x0 = x0
+        self.q0 = q0
+        self.x = x0
+        self.q = q0
+        self.se3_log = jnp.zeros(6)
+        self.rdof_grad_step = 2e-4
+        self.enable_stochastic_rdof = True
+        self.rdof_noise_init = 3e-3
+        self.rdof_noise_decay = 5e-4
+        self.rdof_update_norm_clip = 8e-3
+        self.step_count = 0
+        self.rng: np.random.Generator = np.random.default_rng(0)
 
+    def step_control(
+        self,
+        maybe_twist: Twist | None,
+        model: mujoco.MjModel,  # type: ignore
+        data: mujoco.MjData,  # type: ignore
+    ) -> None:
+        if maybe_twist is not None:
+            self.se3_log = (
+                jnp.array(
+                    [
+                        maybe_twist.vx,
+                        maybe_twist.vy,
+                        maybe_twist.vz,
+                        maybe_twist.wx,
+                        maybe_twist.wy,
+                        maybe_twist.wz,
+                    ]
+                )
+                * model.opt.timestep
+            )
+            self.x = SE3SO3(pose=self.x.pose @ SE3.exp(self.se3_log), rdof=self.x.rdof)
 
-@jax.jit(donate_argnums=(1,), keep_unused=True)
-def mjx_step(*args, **kwargs):
-    return mjx.step(*args, **kwargs)
+        grad_rdof = self.dimension.loss_grad(self.x, self.q).rdof.flatten()
+        rdof_update = -self.rdof_grad_step * grad_rdof
+        if self.enable_stochastic_rdof:
+            noise_scale = self.rdof_noise_init / jnp.sqrt(
+                1.0 + self.rdof_noise_decay * self.step_count
+            )
+            noise = jnp.asarray(self.rng.standard_normal(3), dtype=grad_rdof.dtype)
+            rdof_update = rdof_update + noise_scale * noise
+
+        update_norm = jnp.linalg.norm(rdof_update)
+        update_scale = jnp.minimum(
+            1.0,
+            self.rdof_update_norm_clip / (update_norm + 1e-12),
+        )
+        rdof_update = rdof_update * update_scale
+
+        self.x = SE3SO3(
+            pose=self.x.pose @ SE3.exp(self.se3_log),
+            rdof=self.x.rdof @ SO3.exp(rdof_update),
+        )
+        self.step_count += 1
+        self.q = self.dimension.ik_lm_optx(self.x, self.q)
+        data.ctrl = self.q
+
+        if (
+            jnp.any(jnp.isnan(jnp.array(data.ctrl)))
+            or jnp.linalg.norm(self.x.pose.translation() - data.qpos[:3]) > 20e-3
+            or jnp.linalg.norm((self.x.pose.rotation().inverse() @ SO3(data.qpos[3:7])).log())
+            > jnp.deg2rad(10)
+        ):
+            print("Resetting to initial position.")
+            mujoco.mj_resetDataKeyframe(model, data, 0)  # type: ignore
+            self.x = self.x0
+            self.q = self.q0
+            self.step_count = 0
 
 
 if __name__ == "__main__":
@@ -73,115 +131,9 @@ if __name__ == "__main__":
     for _ in range(10):
         q0 = dimension.ik_lm_optx(x0, q0)
 
-    # spec, model, data = mjcf_spec_platform_and_rrr_serial_model_data(dimension, x0, q0)
-    spec, model, data = dimension.mj_spec_model_data(x0, q0)
+    _spec, model, data = dimension.mj_spec_model_data(x0, q0)
 
-    mx = mjx.put_model(model)
-    dx = mjx.put_data(model, data)
-
-    node = iox2.NodeBuilder.new().create(iox2.ServiceType.Ipc)  # type: ignore
-    twist_subscriber = (
-        node.service_builder(iox2.ServiceName.new("/twist"))  # type: ignore
-        .publish_subscribe(Twist)
-        .open_or_create()
-        .subscriber_builder()
-        .create()
-    )
-
-    pose_subscriber = (
-        node.service_builder(iox2.ServiceName.new("/pose"))  # type: ignore
-        .publish_subscribe(Pose)
-        .open_or_create()
-        .subscriber_builder()
-        .create()
-    )
-
-    x = x0
-    q = q0
-    se3_log = jnp.zeros(6)
-    with viewer.launch_passive(model, data) as viewer:
-        last_update_instant = time.perf_counter()
-        while viewer.is_running():
-            start = time.perf_counter()
-            # twist control logic
-            maybe_twist = None
-            while True:
-                temp = twist_subscriber.receive()
-                if temp is None:
-                    break
-                else:
-                    maybe_twist = temp
-            if maybe_twist is None:
-                pass
-            else:
-                twist: Twist = maybe_twist.payload().contents
-                se3_log = (
-                    jnp.array(
-                        [
-                            twist.vx,
-                            twist.vy,
-                            twist.vz,
-                            twist.wx,
-                            twist.wy,
-                            twist.wz,
-                        ]
-                    )
-                    * model.opt.timestep
-                )
-                x = SE3SO3(pose=x.pose @ SE3.exp(se3_log), rdof=x.rdof)
-
-            # redundancy resolution
-            grad_rdof = dimension.loss_grad(x, q).rdof.flatten()
-            x = SE3SO3(
-                pose=x.pose @ SE3.exp(se3_log),
-                rdof=x.rdof @ SO3.exp(-2e-4 * grad_rdof),
-            )
-            q = dimension.ik_lm_optx(x, q)
-            data.ctrl = q
-            print(dimension.loss(x, q))
-
-            if (
-                # redundancy failed
-                jnp.any(jnp.isnan(jnp.array(data.ctrl)))
-                # translational error
-                or jnp.linalg.norm(x.pose.translation() - data.qpos[:3]) > 20e-3
-                # rotational error
-                or jnp.linalg.norm(
-                    (x.pose.rotation().inverse() @ SO3(data.qpos[3:7])).log()
-                )
-                > jnp.deg2rad(10)
-            ):
-                print("Resetting to initial position.")
-                mujoco.mj_resetDataKeyframe(model, data, 0)  # type: ignore
-                x = x0
-                q = q0
-
-            # MuJoCo step
-            ## MJX
-            dx = mjx_set_data(
-                dx,
-                data.ctrl,
-                data.act,
-                data.xfrc_applied,
-                data.qpos,
-                data.qvel,
-                data.time,
-            )
-            dx = mjx_step(mx, dx)
-            mjx.get_data_into(data, model, dx)
-            viewer.sync()
-
-            # ## MuJoCo
-            # mujoco.mj_step(model, data)  # type: ignore
-            # viewer.sync()
-
-            # timing control
-            elapsed = time.perf_counter() - start
-            if elapsed < model.opt.timestep:
-                # print(f"Sleeping for {model.opt.timestep - elapsed:.6f} seconds")
-                time.sleep(model.opt.timestep - elapsed)
-            else:
-                # print(
-                #     f"Step took {elapsed:.6f} seconds, which is longer than timestep."
-                # )
-                pass
+    controller = SE3SO3_5PSS_4PSSController(dimension=dimension, x0=x0, q0=q0)
+    core = SimulationCore(model=model, data=data, controller=controller)
+    twist_input = TwistInput.create()
+    run_with_mujoco_viewer(core, twist_input, log_sleep=False)

@@ -10,7 +10,7 @@
     version = "0.0.1"
 
 [project.optional-dependencies]
-    dev      = ["pdoc"]
+    dev      = ["pdoc", "pyqtgraph", "pyside6"]
     examples = ["iceoryx2==0.8.0", "mujoco-mjx>=3.4.0,<4.0.0"]
 
 [build-system]
@@ -19,7 +19,7 @@
 
 [tool.pixi.workspace]
     channels  = ["conda-forge"]
-    platforms = ["linux-64", "linux-aarch64", "osx-arm64", "win-64"]
+    platforms = ["linux-64", "osx-arm64", "win-64"]
 
 [tool.pixi.pypi-dependencies]
     se3-rpkm = { path = ".", editable = true }
@@ -42,6 +42,9 @@
     se3so23-sr-platform-rrr-serial       = "python examples/se3so23_sr_platform_rrr_serial.py"
     se3so23-stewart                      = "python examples/se3so23_stewart.py"
     se3so3-5pss-s-4pss                   = "python examples/se3so3_5pss_s_4pss.py"
+    # MuJoCo examples with QOpenGL rendering
+    se3so23-stewart-qopengl          = "python examples/se3so23_stewart_qopengl.py"
+    qopengl-multi-mechanism-launcher = "python examples/qopengl_multi_mechanism_launcher.py"
 
 [tool.pixi.feature.examples.target.osx-arm64.tasks] # MacOS needs to use mjpython for MuJoCo examples
     se3r3-stewart                        = "mjpython examples/se3r3_stewart.py"
@@ -50,6 +53,8 @@
     se3so23-sr-platform-rrr-serial       = "mjpython examples/se3so23_sr_platform_rrr_serial.py"
     se3so23-stewart                      = "mjpython examples/se3so23_stewart.py"
     se3so3-5pss-s-4pss                   = "mjpython examples/se3so3_5pss_s_4pss.py"
+    # MuJoCo examples with QOpenGL rendering
+    qopengl-multi-mechanism-launcher = "python examples/qopengl_multi_mechanism_launcher.py"
 
 [tool.pixi.feature.dev.dependencies]
     nodejs = "*" # pdoc needs this to precompile search index

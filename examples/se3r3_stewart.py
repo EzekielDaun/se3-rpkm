@@ -1,17 +1,20 @@
-import time
-
-import iceoryx2 as iox2
 import jax
 import jax.numpy as jnp
 import jax_dataclasses as jdc
 import mujoco
-import mujoco.viewer as viewer
 from jaxlie import SE3, SO3
-from mujoco import mjx
-from teleop_types import Pose, Twist
+from simulation_runtime import (
+    SimulationCore,
+    StepControllerTrait,
+    TwistInput,
+    run_with_mujoco_viewer,
+)
+from teleop_types import Twist
 
 from se3_rpkm.data_types import Vec9
 from se3_rpkm.linear_redundant_stewart import SE3R3, RedundantR3LegStewartKinematics
+
+JOINT_LIMIT_FACTOR: float = 1e-1
 
 
 @jdc.pytree_dataclass(frozen=True)
@@ -21,28 +24,60 @@ class DimensionJIT(RedundantR3LegStewartKinematics):
         return super().ik(task_coord)
 
     @jax.jit
-    def loss_grad(self, x: SE3R3):
-        return super().loss_grad(x)
+    def loss_grad(self, x: SE3R3, joint_limit_factor: float) -> SE3R3:
+        return super().loss_grad(x, joint_limit_factor=joint_limit_factor)
+
+    @jax.jit
+    def loss(self, x: SE3R3, joint_limit_factor: float) -> float:
+        return super().loss(x, joint_limit_factor=joint_limit_factor)
 
 
-# MJX Simulation
-@jax.jit(donate_argnums=(0,), keep_unused=True)
-def mjx_set_data(dx, ctrl, act, xfrc_applied, qpos, qvel, time_):
-    return dx.tree_replace(
-        {
-            "ctrl": jnp.array(ctrl),
-            "act": jnp.array(act),
-            "xfrc_applied": jnp.array(xfrc_applied),
-            "qpos": jnp.array(qpos),
-            "qvel": jnp.array(qvel),
-            "time": jnp.array(time_),
-        }
-    )
+class SE3R3StewartController(StepControllerTrait):
+    def __init__(self, dimension: DimensionJIT, initial_x: SE3R3, x0: SE3R3) -> None:
+        self.dimension = dimension
+        self.x = initial_x
+        self.x0 = x0
 
+    def step_control(
+        self,
+        maybe_twist: Twist | None,
+        model: mujoco.MjModel,  # type: ignore
+        data: mujoco.MjData,  # type: ignore
+    ) -> None:
+        if maybe_twist is None:
+            return
 
-@jax.jit(donate_argnums=(1,), keep_unused=True)
-def mjx_step(*args, **kwargs):
-    return mjx.step(*args, **kwargs)
+        se3_log = (
+            jnp.array(
+                [
+                    maybe_twist.vx,
+                    maybe_twist.vy,
+                    maybe_twist.vz,
+                    maybe_twist.wx,
+                    maybe_twist.wy,
+                    maybe_twist.wz,
+                ]
+            )
+            * model.opt.timestep
+        )
+
+        grad = self.dimension.loss_grad(self.x, JOINT_LIMIT_FACTOR)
+        self.x = SE3R3(
+            pose=self.x.pose @ SE3.exp(se3_log),
+            rdof=self.x.rdof - 1e-3 * grad.rdof,
+        )
+
+        data.ctrl = self.dimension.ik(self.x)
+
+        if (
+            jnp.any(jnp.isnan(jnp.array(data.ctrl)))
+            or jnp.linalg.norm(self.x.pose.translation() - data.qpos[:3]) > 0.1
+            or jnp.linalg.norm(self.x.pose.rotation().parameters() - data.qpos[3:7])
+            > 0.1
+        ):
+            print("Resetting to initial position.")
+            mujoco.mj_resetDataKeyframe(model, data, 0)  # type: ignore
+            self.x = self.x0
 
 
 if __name__ == "__main__":
@@ -53,7 +88,7 @@ if __name__ == "__main__":
     deg_120_3 = jnp.array([0.0, 120.0, 240.0])
     rad_120_3 = jnp.deg2rad(deg_120_3)
 
-    DIMENSION = DimensionJIT(
+    dimension = DimensionJIT(
         v_i1=SO3.from_z_radians(jnp.deg2rad(50.0 + deg_120_3)).apply(
             jnp.array([[alpha, 0.0, 0.0]])
         ),
@@ -77,112 +112,15 @@ if __name__ == "__main__":
     )
 
     x = x0
-    # JIT warm up
     print("Warming up JIT...")
     for _ in range(int(1e3)):
-        grad = DIMENSION.loss_grad(x)
+        grad = dimension.loss_grad(x, JOINT_LIMIT_FACTOR)
         x = SE3R3(pose=x.pose, rdof=x.rdof - 1e-3 * grad.rdof)
     print("JIT warm up done.")
 
-    spec, model, data = DIMENSION.mj_spec_model_data(x)
+    _spec, model, data = dimension.mj_spec_model_data(x)
 
-    mx = mjx.put_model(model)
-    dx = mjx.put_data(model, data)
-
-    node = iox2.NodeBuilder.new().create(iox2.ServiceType.Ipc)  # type: ignore
-    twist_subscriber = (
-        node.service_builder(iox2.ServiceName.new("/twist"))  # type: ignore
-        .publish_subscribe(Twist)
-        .open_or_create()
-        .subscriber_builder()
-        .create()
-    )
-
-    pose_subscriber = (
-        node.service_builder(iox2.ServiceName.new("/pose"))  # type: ignore
-        .publish_subscribe(Pose)
-        .open_or_create()
-        .subscriber_builder()
-        .create()
-    )
-
-    jit_step = jax.jit(jax.vmap(mjx.step, in_axes=(None, 0)))
-    with viewer.launch_passive(model, data) as viewer:
-        last_update_instant = time.perf_counter()
-        while viewer.is_running():
-            start = time.perf_counter()
-            # twist control logic
-            maybe_twist = None
-            while True:
-                temp = twist_subscriber.receive()
-                if temp is None:
-                    break
-                else:
-                    maybe_twist = temp
-            if maybe_twist is None:
-                pass
-            else:
-                twist: Twist = maybe_twist.payload().contents
-                se3_log = (
-                    jnp.array(
-                        [
-                            twist.vx,
-                            twist.vy,
-                            twist.vz,
-                            twist.wx,
-                            twist.wy,
-                            twist.wz,
-                        ]
-                    )
-                    * model.opt.timestep
-                )
-
-                grad = DIMENSION.loss_grad(x)
-                x = SE3R3(
-                    pose=x.pose @ SE3.exp(se3_log), rdof=x.rdof - 1e-3 * grad.rdof
-                )
-
-                data.ctrl = DIMENSION.ik(x)
-                # print(DIMENSION.loss_func(x))
-                if (
-                    # jnp.isnan(loss)
-                    jnp.any(jnp.isnan(jnp.array(data.ctrl)))
-                    or jnp.linalg.norm(x.pose.translation() - data.qpos[:3]) > 0.1
-                    or jnp.linalg.norm(x.pose.rotation().parameters() - data.qpos[3:7])
-                    > 0.1
-                ):
-                    print("Resetting to initial position.")
-                    mujoco.mj_resetDataKeyframe(model, data, 0)  # type: ignore
-                    x = x0
-
-            # MuJoCo step
-            ## MJX
-            dx = mjx_set_data(
-                dx,
-                data.ctrl,
-                data.act,
-                data.xfrc_applied,
-                data.qpos,
-                data.qvel,
-                data.time,
-            )
-            # dx_batch = jax.vmap(lambda _: dx.replace())(jnp.zeros(1000))
-            # dx_batch = jax.vmap(lambda _: dx.replace())(jnp.zeros(1))
-            dx = mjx_step(mx, dx)
-            # dx_batch = jit_step(mx, dx_batch)
-            # mjx.get_data_into(data, model, dx_batch[0])
-            mjx.get_data_into(data, model, dx)
-            viewer.sync()
-
-            ## MuJoCo
-            # mujoco.mj_step(model, data)  # type: ignore
-            # viewer.sync()
-
-            elapsed = time.perf_counter() - start
-            if elapsed < model.opt.timestep:
-                print(f"Sleeping for {model.opt.timestep - elapsed:.6f} seconds")
-                time.sleep(model.opt.timestep - elapsed)
-            else:
-                print(
-                    f"Step took {elapsed:.6f} seconds, which is longer than timestep."
-                )
+    controller = SE3R3StewartController(dimension=dimension, initial_x=x, x0=x0)
+    core = SimulationCore(model=model, data=data, controller=controller)
+    twist_input = TwistInput.create()
+    run_with_mujoco_viewer(core, twist_input, log_sleep=True)
