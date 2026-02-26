@@ -231,7 +231,6 @@ def _build_se3so23_stewart_session(twist_input: TwistInput) -> MechanismSession:
     )
 
     x = x0
-    print("[se3so23_stewart] Warming up JIT...")
     for _ in range(100):
         (_, _loss), x = dimension.damped_newton_step_fn((x, 0.0), x0.pose, factor=1e-2)
 
@@ -292,7 +291,6 @@ def _build_se3so22_stewart_session(twist_input: TwistInput) -> MechanismSession:
     )
 
     x = x0
-    print("[se3so22_stewart] Warming up JIT...")
     for _ in range(100):
         (_, _loss), x = dimension.damped_newton_step_fn((x, 0.0), x0.pose, factor=1e-2)
 
@@ -357,7 +355,6 @@ def _build_se3r3_stewart_session(twist_input: TwistInput) -> MechanismSession:
     )
 
     x = x0
-    print("[se3r3_stewart] Warming up JIT...")
     for _ in range(int(1e3)):
         grad = dimension.loss_grad(x, SE3R3_JOINT_LIMIT_FACTOR)
         x = SE3R3(pose=x.pose, rdof=x.rdof - 1e-3 * grad.rdof)

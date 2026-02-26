@@ -25,9 +25,12 @@ class JITDimension(SE3SO3_5PSS_S_4PSS_Kinematics):
 
     @jax.jit
     def loss(self, x: SE3SO3, q: Vec9) -> float:
-        ik_jac = self.ik_jacobian(x, q)
-        # return jnp.linalg.cond(ik_jac)
-        return -jnp.linalg.slogdet((ik_jac.T) @ ik_jac)[1]
+        # ik_jac = self.ik_jacobian(x, q)
+        # # return jnp.linalg.cond(ik_jac)
+        # return -jnp.linalg.slogdet((ik_jac.T) @ ik_jac)[1]
+        joint_jac = self.jacobian_wrt_joint_tangent_matrix(x, q)
+        ee_jac = self.jacobian_wrt_task_tangent_matrix(x, q)
+        return jnp.linalg.cond(joint_jac) + jnp.linalg.cond(ee_jac)
 
     @jax.jit
     def loss_grad(self, x: SE3SO3, q: Vec9) -> SE3SO3:
@@ -111,7 +114,9 @@ class SE3SO3_5PSS_4PSSController(StepControllerTrait):
         if (
             jnp.any(jnp.isnan(jnp.array(data.ctrl)))
             or jnp.linalg.norm(self.x.pose.translation() - data.qpos[:3]) > 25e-3
-            or jnp.linalg.norm((self.x.pose.rotation().inverse() @ SO3(data.qpos[3:7])).log())
+            or jnp.linalg.norm(
+                (self.x.pose.rotation().inverse() @ SO3(data.qpos[3:7])).log()
+            )
             > jnp.deg2rad(15)
         ):
             self.reset(model, data)
