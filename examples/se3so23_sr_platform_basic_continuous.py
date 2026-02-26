@@ -37,6 +37,16 @@ class SRPlatformBasicContinuousController(StepControllerTrait):
         self.x = x0
         self.se3_log = jnp.zeros(6)
 
+    def reset(
+        self,
+        model: mujoco.MjModel,  # type: ignore
+        data: mujoco.MjData,  # type: ignore
+    ) -> None:
+        print("Resetting to initial position.")
+        mujoco.mj_resetDataKeyframe(model, data, 0)  # type: ignore
+        self.x = self.x0
+        data.ctrl = self.dimension.ik(self.x)
+
     def step_control(
         self,
         maybe_twist: Twist | None,
@@ -81,9 +91,7 @@ class SRPlatformBasicContinuousController(StepControllerTrait):
             or jnp.linalg.norm((self.x.pose.rotation().inverse() @ SO3(data.qpos[3:7])).log())
             > jnp.deg2rad(10)
         ):
-            print("Resetting to initial position.")
-            mujoco.mj_resetDataKeyframe(model, data, 0)  # type: ignore
-            self.x = self.x0
+            self.reset(model, data)
 
 
 if __name__ == "__main__":

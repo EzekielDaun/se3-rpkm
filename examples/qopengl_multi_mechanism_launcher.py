@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+from io import TextIOBase
 import sys
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, TextIO
 
 import jax.numpy as jnp
 from jaxlie import SE3, SO2, SO3
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QCloseEvent, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
+    QDockWidget,
     QLabel,
     QMainWindow,
+    QPlainTextEdit,
+    QPushButton,
     QSplitter,
     QTabWidget,
     QVBoxLayout,
@@ -55,6 +59,57 @@ from se3_rpkm.sr_platform import (
 METRIC_WINDOW_SECONDS: float = 10.0
 
 
+class LogTextEmitter(QObject):
+    text_written = Signal(str)
+
+
+class DockTextStream(TextIOBase):
+    def __init__(
+        self,
+        emitter: LogTextEmitter,
+        original_stream: TextIO,
+        stream_label: str,
+    ) -> None:
+        super().__init__()
+        self.emitter = emitter
+        self.original_stream = original_stream
+        self.stream_label = stream_label
+
+    def _decorate_text(self, text: str) -> str:
+        if self.stream_label == "":
+            return text
+
+        lines = text.splitlines(keepends=True)
+        return "".join(
+            f"{self.stream_label}{line}" if line.strip() != "" else line
+            for line in lines
+        )
+
+    def write(self, text: str) -> int:
+        if text == "":
+            return 0
+
+        decorated = self._decorate_text(text)
+        self.emitter.text_written.emit(decorated)
+
+        try:
+            self.original_stream.write(text)
+            self.original_stream.flush()
+        except Exception:
+            pass
+
+        return len(text)
+
+    def flush(self) -> None:
+        try:
+            self.original_stream.flush()
+        except Exception:
+            pass
+
+    def writable(self) -> bool:
+        return True
+
+
 class EpisodeStateTracker:
     def __init__(
         self,
@@ -85,6 +140,7 @@ class EpisodeStateTracker:
 
 @dataclass
 class MechanismSession:
+    core: SimulationCore
     widget: QWidget
     driver: QtSimulationDriver
 
@@ -203,7 +259,7 @@ def _build_se3so23_stewart_session(twist_input: TwistInput) -> MechanismSession:
         MetricProvider("loss", lambda p: dimension.loss_func(p.x)),
     ]
     widget = _build_session_widget(core, driver, providers)
-    return MechanismSession(widget=widget, driver=driver)
+    return MechanismSession(core=core, widget=widget, driver=driver)
 
 
 def _build_se3so22_stewart_session(twist_input: TwistInput) -> MechanismSession:
@@ -262,7 +318,7 @@ def _build_se3so22_stewart_session(twist_input: TwistInput) -> MechanismSession:
         MetricProvider("loss", lambda p: dimension.loss_func(p.x)),
     ]
     widget = _build_session_widget(core, driver, providers)
-    return MechanismSession(widget=widget, driver=driver)
+    return MechanismSession(core=core, widget=widget, driver=driver)
 
 
 def _build_se3r3_stewart_session(twist_input: TwistInput) -> MechanismSession:
@@ -326,7 +382,7 @@ def _build_se3r3_stewart_session(twist_input: TwistInput) -> MechanismSession:
         ),
     ]
     widget = _build_session_widget(core, driver, providers)
-    return MechanismSession(widget=widget, driver=driver)
+    return MechanismSession(core=core, widget=widget, driver=driver)
 
 
 def _build_sr_platform_basic_session(twist_input: TwistInput) -> MechanismSession:
@@ -367,7 +423,7 @@ def _build_sr_platform_basic_session(twist_input: TwistInput) -> MechanismSessio
         MetricProvider("loss", lambda p: dimension.loss(p.x)),
     ]
     widget = _build_session_widget(core, driver, providers)
-    return MechanismSession(widget=widget, driver=driver)
+    return MechanismSession(core=core, widget=widget, driver=driver)
 
 
 def _build_sr_platform_rrr_serial_session(
@@ -440,7 +496,7 @@ def _build_sr_platform_rrr_serial_session(
         MetricProvider("loss", lambda p: dimension.loss_jitted(p.x, p.q)),
     ]
     widget = _build_session_widget(core, driver, providers)
-    return MechanismSession(widget=widget, driver=driver)
+    return MechanismSession(core=core, widget=widget, driver=driver)
 
 
 def _build_se3so3_5pss_4pss_session(twist_input: TwistInput) -> MechanismSession:
@@ -486,7 +542,7 @@ def _build_se3so3_5pss_4pss_session(twist_input: TwistInput) -> MechanismSession
         MetricProvider("loss", lambda p: dimension.loss(p.x, p.q)),
     ]
     widget = _build_session_widget(core, driver, providers)
-    return MechanismSession(widget=widget, driver=driver)
+    return MechanismSession(core=core, widget=widget, driver=driver)
 
 
 class QOpenGLMechanismLauncher(QMainWindow):
@@ -532,6 +588,10 @@ class QOpenGLMechanismLauncher(QMainWindow):
         self.setCentralWidget(self.tabs)
         self.resize(1800, 1000)
         self.statusBar().showMessage("Initializing...")
+        self._setup_log_dock()
+        self.manual_reset_button = QPushButton("Reset", self)
+        self.manual_reset_button.clicked.connect(self._on_manual_reset_clicked)
+        self.statusBar().addPermanentWidget(self.manual_reset_button)
 
         self.status_timer = QTimer(self)
         self.status_timer.setInterval(100)
@@ -540,6 +600,43 @@ class QOpenGLMechanismLauncher(QMainWindow):
 
         self.tabs.currentChanged.connect(self._on_current_tab_changed)
         self._on_current_tab_changed(self.tabs.currentIndex())
+
+    def _setup_log_dock(self) -> None:
+        self.log_output = QPlainTextEdit(self)
+        self.log_output.setReadOnly(True)
+        self.log_output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.log_output.document().setMaximumBlockCount(5000)
+
+        self.log_dock = QDockWidget("Console", self)
+        self.log_dock.setObjectName("console_dock")
+        self.log_dock.setWidget(self.log_output)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.log_dock)
+
+        self.log_emitter = LogTextEmitter(self)
+        self.log_emitter.text_written.connect(self._append_log_text)
+
+        self.stdout_original = sys.stdout
+        self.stderr_original = sys.stderr
+        self.stdout_redirect = DockTextStream(
+            self.log_emitter,
+            self.stdout_original,
+            "",
+        )
+        self.stderr_redirect = DockTextStream(
+            self.log_emitter,
+            self.stderr_original,
+            "[stderr] ",
+        )
+        sys.stdout = self.stdout_redirect
+        sys.stderr = self.stderr_redirect
+
+    @Slot(str)
+    def _append_log_text(self, text: str) -> None:
+        cursor = self.log_output.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.insertText(text)
+        self.log_output.setTextCursor(cursor)
+        self.log_output.ensureCursorVisible()
 
     def _on_current_tab_changed(self, index: int) -> None:
         if index < 0:
@@ -584,6 +681,18 @@ class QOpenGLMechanismLauncher(QMainWindow):
             )
         )
 
+    def _on_manual_reset_clicked(self) -> None:
+        index = self.tabs.currentIndex()
+        if index < 0:
+            return
+
+        session = self._sessions.get(index)
+        if session is None:
+            return
+
+        session.core.reset()
+        self._refresh_status_bar()
+
     def _initialize_session(self, index: int) -> None:
         descriptor = self.registry[index]
         session = descriptor.build(self.twist_input)
@@ -603,6 +712,8 @@ class QOpenGLMechanismLauncher(QMainWindow):
         layout.addWidget(session.widget)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        sys.stdout = self.stdout_original
+        sys.stderr = self.stderr_original
         self.status_timer.stop()
         for session in self._sessions.values():
             session.driver.stop()

@@ -53,6 +53,17 @@ class SRPlatformRRRSerialController(StepControllerTrait):
         self.q = q0
         self.se3_log = jnp.zeros(6)
 
+    def reset(
+        self,
+        model: mujoco.MjModel,  # type: ignore
+        data: mujoco.MjData,  # type: ignore
+    ) -> None:
+        print("Resetting to initial position.")
+        mujoco.mj_resetDataKeyframe(model, data, 0)  # type: ignore
+        self.x = self.x0
+        self.q = self.q0
+        data.ctrl = self.q.as_radians().flatten()
+
     def step_control(
         self,
         maybe_twist: Twist | None,
@@ -91,10 +102,7 @@ class SRPlatformRRRSerialController(StepControllerTrait):
             )
             > jnp.deg2rad(10)
         ):
-            print("Resetting to initial position.")
-            mujoco.mj_resetDataKeyframe(model, data, 0)  # type: ignore
-            self.x = self.x0
-            self.q = self.q0
+            self.reset(model, data)
 
 
 if __name__ == "__main__":

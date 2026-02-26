@@ -1,10 +1,9 @@
-import numpy as np
-
 import jax
 import jax.numpy as jnp
 import jax_dataclasses as jdc
 import jaxlie
 import mujoco
+import numpy as np
 from jaxlie import SE3, SO3
 from simulation_runtime import (
     SimulationCore,
@@ -50,6 +49,18 @@ class SE3SO3_5PSS_4PSSController(StepControllerTrait):
         self.rdof_update_norm_clip = 8e-3
         self.step_count = 0
         self.rng: np.random.Generator = np.random.default_rng(0)
+
+    def reset(
+        self,
+        model: mujoco.MjModel,  # type: ignore
+        data: mujoco.MjData,  # type: ignore
+    ) -> None:
+        print("Resetting to initial position.")
+        mujoco.mj_resetDataKeyframe(model, data, 0)  # type: ignore
+        self.x = self.x0
+        self.q = self.q0
+        self.step_count = 0
+        data.ctrl = self.q
 
     def step_control(
         self,
@@ -99,15 +110,11 @@ class SE3SO3_5PSS_4PSSController(StepControllerTrait):
 
         if (
             jnp.any(jnp.isnan(jnp.array(data.ctrl)))
-            or jnp.linalg.norm(self.x.pose.translation() - data.qpos[:3]) > 20e-3
+            or jnp.linalg.norm(self.x.pose.translation() - data.qpos[:3]) > 25e-3
             or jnp.linalg.norm((self.x.pose.rotation().inverse() @ SO3(data.qpos[3:7])).log())
-            > jnp.deg2rad(10)
+            > jnp.deg2rad(15)
         ):
-            print("Resetting to initial position.")
-            mujoco.mj_resetDataKeyframe(model, data, 0)  # type: ignore
-            self.x = self.x0
-            self.q = self.q0
-            self.step_count = 0
+            self.reset(model, data)
 
 
 if __name__ == "__main__":

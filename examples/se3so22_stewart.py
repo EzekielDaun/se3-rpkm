@@ -3,16 +3,16 @@ import jax.numpy as jnp
 import jax_dataclasses as jdc
 import mujoco
 from jaxlie import SE3, SO2, SO3
-from teleop_types import Twist
-
-from se3_rpkm.data_types import SE3SO22, Vec8
-from se3_rpkm.so2_redundant_stewart import SE3SO22StewartKinematics
 from simulation_runtime import (
     SimulationCore,
     StepControllerTrait,
     TwistInput,
     run_with_mujoco_viewer,
 )
+from teleop_types import Twist
+
+from se3_rpkm.data_types import SE3SO22, Vec8
+from se3_rpkm.so2_redundant_stewart import SE3SO22StewartKinematics
 
 
 @jdc.pytree_dataclass(frozen=True)
@@ -39,6 +39,16 @@ class SE3SO22StewartController(StepControllerTrait):
         self.dimension = dimension
         self.x = initial_x
         self.x0 = x0
+
+    def reset(
+        self,
+        model: mujoco.MjModel,  # type: ignore
+        data: mujoco.MjData,  # type: ignore
+    ) -> None:
+        print("Resetting to initial position.")
+        mujoco.mj_resetDataKeyframe(model, data, 0)  # type: ignore
+        self.x = self.x0
+        data.ctrl = self.dimension.ik(self.x)
 
     def step_control(
         self,
@@ -74,9 +84,7 @@ class SE3SO22StewartController(StepControllerTrait):
             or jnp.linalg.norm(self.x.pose.rotation().parameters() - data.qpos[3:7])
             > 0.1
         ):
-            print("Resetting to initial position.")
-            mujoco.mj_resetDataKeyframe(model, data, 0)  # type: ignore
-            self.x = self.x0
+            self.reset(model, data)
 
 
 if __name__ == "__main__":

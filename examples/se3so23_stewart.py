@@ -49,6 +49,19 @@ class SE3SO23StewartController(StepControllerTrait):
         self.episode_id = 0
         self.just_reset = False
 
+    def reset(
+        self,
+        model: mujoco.MjModel,  # type: ignore
+        data: mujoco.MjData,  # type: ignore
+    ) -> None:
+        print("Resetting to initial position.")
+        mujoco.mj_resetDataKeyframe(model, data, 0)  # type: ignore
+        self.x = self.x0
+        self.q = self.q0
+        data.ctrl = self.q
+        self.episode_id += 1
+        self.just_reset = True
+
     def step_control(
         self,
         maybe_twist: Twist | None,
@@ -86,13 +99,7 @@ class SE3SO23StewartController(StepControllerTrait):
             or jnp.linalg.norm(self.x.pose.rotation().parameters() - data.qpos[3:7])
             > 0.1
         ):
-            print("Resetting to initial position.")
-            mujoco.mj_resetDataKeyframe(model, data, 0)  # type: ignore
-            self.x = self.x0
-            self.q = self.q0
-            data.ctrl = self.q
-            self.episode_id += 1
-            self.just_reset = True
+            self.reset(model, data)
 
     def get_kinematic_state(self) -> KinematicState[SE3SO23, Vec9]:
         return KinematicState(

@@ -64,6 +64,13 @@ class StepControllerTrait:
     ) -> None:
         raise NotImplementedError
 
+    def reset(
+        self,
+        model: mujoco.MjModel,  # type: ignore
+        data: mujoco.MjData,  # type: ignore
+    ) -> None:
+        raise NotImplementedError
+
 
 class TwistInput:
     def __init__(
@@ -142,6 +149,18 @@ class SimulationCore:
         self.dx = mjx_step(self.mx, self.dx)
         mjx.get_data_into(self.data, self.model, self.dx)
         return time.perf_counter() - start
+
+    def reset(self) -> None:
+        self.controller.reset(self.model, self.data)
+        self.dx = mjx_set_data(
+            self.dx,
+            self.data.ctrl,
+            self.data.act,
+            self.data.xfrc_applied,
+            self.data.qpos,
+            self.data.qvel,
+            self.data.time,
+        )
 
 
 def sleep_to_timestep(
