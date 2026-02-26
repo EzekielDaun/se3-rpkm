@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from io import TextIOBase
+import os
 import sys
 from dataclasses import dataclass
+from io import TextIOBase
 from typing import Callable, TextIO
 
 import jax.numpy as jnp
+
+os.environ.setdefault("QSG_RHI_BACKEND", "opengl")
+from gamepad_web_panel import GamepadWebPanelController
 from jaxlie import SE3, SO2, SO3
 from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QCloseEvent, QTextCursor
@@ -26,8 +30,8 @@ from qopengl_runtime.qt_metrics import EpisodeMetricsTabsWidget, MetricProvider
 from qopengl_runtime.qt_simulation_runtime import (
     QtSimulationDriver,
 )
-from se3r3_stewart import DimensionJIT as SE3R3Dimension
 from se3r3_stewart import JOINT_LIMIT_FACTOR as SE3R3_JOINT_LIMIT_FACTOR
+from se3r3_stewart import DimensionJIT as SE3R3Dimension
 from se3r3_stewart import SE3R3StewartController
 from se3so3_5pss_s_4pss import JITDimension as SE3SO3Dimension
 from se3so3_5pss_s_4pss import SE3SO3_5PSS_4PSSController
@@ -377,9 +381,7 @@ def _build_se3r3_stewart_session(twist_input: TwistInput) -> MechanismSession:
     )
 
     providers = [
-        MetricProvider(
-            "loss", lambda p: dimension.loss(p.x, SE3R3_JOINT_LIMIT_FACTOR)
-        ),
+        MetricProvider("loss", lambda p: dimension.loss(p.x, SE3R3_JOINT_LIMIT_FACTOR)),
     ]
     widget = _build_session_widget(core, driver, providers)
     return MechanismSession(core=core, widget=widget, driver=driver)
@@ -551,6 +553,7 @@ class QOpenGLMechanismLauncher(QMainWindow):
         self.setWindowTitle("RPKM QOpenGL Launcher")
 
         self.twist_input = TwistInput.create()
+        self.gamepad_web_panel = GamepadWebPanelController()
 
         self.registry: list[MechanismDescriptor] = [
             MechanismDescriptor("se3so23_stewart", _build_se3so23_stewart_session),
@@ -585,7 +588,14 @@ class QOpenGLMechanismLauncher(QMainWindow):
             self._tab_containers.append(container)
             self.tabs.addTab(container, descriptor.name)
 
-        self.setCentralWidget(self.tabs)
+        self.web_panel = self.gamepad_web_panel.build_widget(self)
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        self.main_splitter.addWidget(self.tabs)
+        self.main_splitter.addWidget(self.web_panel)
+        self.main_splitter.setStretchFactor(0, 3)
+        self.main_splitter.setStretchFactor(1, 2)
+        self.main_splitter.setSizes([1100, 700])
+        self.setCentralWidget(self.main_splitter)
         self.resize(1800, 1000)
         self.statusBar().showMessage("Initializing...")
         self._setup_log_dock()

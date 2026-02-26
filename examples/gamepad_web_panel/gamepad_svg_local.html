@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gamepad SVG Local</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --page-bg: #f4f6f8;
+        --footer-fg: rgba(0, 0, 0, 0.6);
+        --footer-link-fg: rgba(0, 0, 0, 0.75);
+        --gamepad-filter: none;
+      }
+
+      :root[data-theme="light"] {
+        --page-bg: #f4f6f8;
+        --footer-fg: rgba(0, 0, 0, 0.6);
+        --footer-link-fg: rgba(0, 0, 0, 0.75);
+        --gamepad-filter: none;
+      }
+
+      :root[data-theme="dark"] {
+        --page-bg: #171c22;
+        --footer-fg: rgba(255, 255, 255, 0.65);
+        --footer-link-fg: rgba(255, 255, 255, 0.82);
+        --gamepad-filter: brightness(0.78) saturate(0.88) contrast(1.12);
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--page-bg);
+      }
+
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      #gamepad-root {
+        width: clamp(220px, 96vw, 900px);
+        max-height: 96vh;
+      }
+
+      #gamepad-root > svg {
+        display: block;
+        width: 100%;
+        height: auto;
+        max-height: 96vh;
+        filter: var(--gamepad-filter);
+      }
+
+      #footer {
+        position: fixed;
+        left: 50%;
+        bottom: 10px;
+        transform: translateX(-50%);
+        font-size: 12px;
+        color: var(--footer-fg);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        text-align: center;
+        white-space: nowrap;
+      }
+
+      #footer a {
+        color: var(--footer-link-fg);
+        text-decoration: none;
+      }
+
+      #footer a:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="gamepad-root"></div>
+    <div id="footer">
+      Copyright 2013-2026 HardwareTester.com ·
+      <a href="https://hardwaretester.com/gamepad" target="_blank" rel="noreferrer">
+        hardwaretester.com/gamepad
+      </a>
+    </div>
+    <script src="./gamepad_svg_local.js"></script>
+  </body>
+</html>
