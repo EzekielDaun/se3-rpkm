@@ -8,6 +8,7 @@ from io import TextIOBase
 from typing import Callable, TextIO
 
 import jax.numpy as jnp
+import mujoco
 
 os.environ.setdefault("QSG_RHI_BACKEND", "opengl")
 from gamepad_web_panel import GamepadWebPanelController
@@ -63,6 +64,32 @@ from se3_rpkm.sr_platform import (
 )
 
 METRIC_WINDOW_SECONDS: float = 10.0
+
+
+def _ensure_light_skybox_background(spec, model, data):
+    skybox_texture = next(
+        (
+            texture
+            for texture in spec.textures
+            if texture.type == mujoco.mjtTexture.mjTEXTURE_SKYBOX  # type: ignore
+        ),
+        None,
+    )
+
+    if skybox_texture is None:
+        texture = spec.add_texture()
+        texture.name = "qt_light_skybox"
+        texture.type = mujoco.mjtTexture.mjTEXTURE_SKYBOX  # type: ignore
+        skybox_texture = texture
+
+    skybox_texture.builtin = mujoco.mjtBuiltin.mjBUILTIN_FLAT  # type: ignore
+    skybox_texture.rgb1 = [0.96, 0.96, 0.96]
+    skybox_texture.rgb2 = [0.96, 0.96, 0.96]
+    skybox_texture.width = 32
+    skybox_texture.height = 32
+
+    model, data = spec.recompile(model, data)
+    return model, data
 
 
 class LogTextEmitter(QObject):
@@ -318,6 +345,7 @@ def _build_se3so23_stewart_session(twist_input: TwistInput) -> MechanismSession:
         (_, _loss), x = dimension.damped_newton_step_fn((x, 0.0), x0.pose, factor=1e-2)
 
     _spec, model, data = dimension.mj_spec_model_data(x0)
+    model, data = _ensure_light_skybox_background(_spec, model, data)
     q = dimension.ik(x)
     data.ctrl = q
 
@@ -387,6 +415,7 @@ def _build_se3so22_stewart_session(twist_input: TwistInput) -> MechanismSession:
         act_lower_length=0.4,
         act_upper_length=0.7,
     )
+    model, data = _ensure_light_skybox_background(_spec, model, data)
     data.ctrl = dimension.ik(x)
 
     controller = SE3SO22StewartController(dimension=dimension, initial_x=x, x0=x0)
@@ -453,6 +482,7 @@ def _build_se3r3_stewart_session(twist_input: TwistInput) -> MechanismSession:
         x = SE3R3(pose=x.pose, rdof=x.rdof - 1e-3 * grad.rdof)
 
     _spec, model, data = dimension.mj_spec_model_data(x)
+    model, data = _ensure_light_skybox_background(_spec, model, data)
     data.ctrl = dimension.ik(x)
 
     controller = SE3R3StewartController(dimension=dimension, initial_x=x, x0=x0)
@@ -499,6 +529,7 @@ def _build_sr_platform_basic_session(twist_input: TwistInput) -> MechanismSessio
     )
 
     _spec, model, data = dimension.mj_spec_model_data(x0)
+    model, data = _ensure_light_skybox_background(_spec, model, data)
     data.ctrl = dimension.ik(x0)
 
     controller = SRPlatformBasicContinuousController(dimension=dimension, x0=x0)
@@ -577,6 +608,7 @@ def _build_sr_platform_rrr_serial_session(
         q0 = dimension.ik_lm_optx(x0, q0).normalize()
 
     _spec, model, data = dimension.mj_spec_model_data(x0, q0)
+    model, data = _ensure_light_skybox_background(_spec, model, data)
     data.ctrl = q0.as_radians().flatten()
 
     controller = SRPlatformRRRSerialController(dimension=dimension, x0=x0, q0=q0)
@@ -628,6 +660,7 @@ def _build_se3so3_5pss_4pss_session(twist_input: TwistInput) -> MechanismSession
         q0 = dimension.ik_lm_optx(x0, q0)
 
     _spec, model, data = dimension.mj_spec_model_data(x0, q0)
+    model, data = _ensure_light_skybox_background(_spec, model, data)
     data.ctrl = q0
 
     controller = SE3SO3_5PSS_4PSSController(dimension=dimension, x0=x0, q0=q0)

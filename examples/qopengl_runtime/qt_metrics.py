@@ -12,6 +12,8 @@ from qopengl_runtime.qt_simulation_runtime import SimulationStepPayload
 
 """Qt widgets for streaming simulation metrics with per-episode tabs."""
 
+pg.setConfigOptions(background="w", foreground="k")
+
 
 @dataclass(frozen=True)
 class MetricProvider:
