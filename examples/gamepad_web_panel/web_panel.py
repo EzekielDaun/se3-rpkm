@@ -3,12 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl
+from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
-
-try:
-    from PySide6.QtWebEngineWidgets import QWebEngineView
-except Exception:  # pragma: no cover
-    QWebEngineView = None  # type: ignore
 
 GAMEPAD_WEB_PANEL_DIR: Path = Path(__file__).resolve().parent
 GAMEPAD_ENTRY_HTML: Path = GAMEPAD_WEB_PANEL_DIR / "gamepad_svg_local.html"
@@ -16,7 +12,7 @@ GAMEPAD_ENTRY_HTML: Path = GAMEPAD_WEB_PANEL_DIR / "gamepad_svg_local.html"
 
 class GamepadWebPanelController:
     def __init__(self) -> None:
-        self.web_view = None
+        self.web_view: QWebEngineView | None = None
         self.style_hints = QApplication.styleHints()
         color_scheme_changed = getattr(self.style_hints, "colorSchemeChanged", None)
         if color_scheme_changed is not None:
@@ -58,15 +54,6 @@ class GamepadWebPanelController:
         self._sync_theme_to_web_view()
 
     def build_widget(self, parent: QWidget) -> QWidget:
-        if QWebEngineView is None:
-            fallback = QLabel(
-                "Qt WebEngine is unavailable in this environment.",
-                parent,
-            )
-            fallback.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.web_view = None
-            return fallback
-
         entry_html = GAMEPAD_ENTRY_HTML.resolve()
         if not entry_html.exists():
             fallback = QLabel(
@@ -77,18 +64,9 @@ class GamepadWebPanelController:
             self.web_view = None
             return fallback
 
-        try:
-            web_view = QWebEngineView(parent)
-            self.web_view = web_view
-            web_view.loadFinished.connect(self._on_page_load_finished)
-            index_url = QUrl.fromLocalFile(str(entry_html))
-            web_view.setUrl(index_url)
-            return web_view
-        except Exception:
-            fallback = QLabel(
-                "Failed to initialize local gamepad tester view.",
-                parent,
-            )
-            fallback.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.web_view = None
-            return fallback
+        web_view = QWebEngineView(parent)
+        self.web_view = web_view
+        web_view.loadFinished.connect(self._on_page_load_finished)
+        index_url = QUrl.fromLocalFile(str(entry_html))
+        web_view.setUrl(index_url)
+        return web_view

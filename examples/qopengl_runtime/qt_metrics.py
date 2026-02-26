@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from bisect import bisect_left
 import math
+from bisect import bisect_left
 from dataclasses import dataclass
 from typing import Callable
 
@@ -41,7 +41,7 @@ class MetricsPlotWidget(QWidget):
 
         self._times: list[float] = []
         self._series: dict[str, list[float]] = {}
-        self._twist_active_loss_series: list[float] = []
+        self._twist_active_flags: list[bool] = []
 
         self.plot = pg.PlotWidget(parent=self)
         self.plot.showGrid(x=True, y=True, alpha=0.3)
@@ -85,7 +85,7 @@ class MetricsPlotWidget(QWidget):
             [],
             [],
             name="twist_active",
-            pen=pg.mkPen(color=(22, 160, 133, 180), width=1),
+            pen=pg.mkPen(color=(22, 160, 133, 0), width=1),
             fillLevel=0.0,
             brush=pg.mkBrush(22, 160, 133, 50),
         )
@@ -105,18 +105,16 @@ class MetricsPlotWidget(QWidget):
             series.append(combined_metrics[metric_name])
 
         if self._loss_metric_name is None:
-            self._twist_active_loss_series.append(math.nan)
+            self._twist_active_flags.append(False)
         else:
-            loss_value = combined_metrics[self._loss_metric_name]
-            active_value = loss_value if payload.twist_active else math.nan
-            self._twist_active_loss_series.append(active_value)
+            self._twist_active_flags.append(payload.twist_active)
 
         newest_time = self._times[-1]
         min_time = newest_time - self.window_seconds
         trim = bisect_left(self._times, min_time)
         if trim > 0:
             self._times = self._times[trim:]
-            self._twist_active_loss_series = self._twist_active_loss_series[trim:]
+            self._twist_active_flags = self._twist_active_flags[trim:]
             for metric_name in self._series:
                 self._series[metric_name] = self._series[metric_name][trim:]
 
@@ -124,12 +122,18 @@ class MetricsPlotWidget(QWidget):
             curve.setData(self._times, self._series[metric_name])
         if self._loss_metric_name is None:
             twist_fill_level = 0.0
+            twist_ceiling = 0.0
         else:
             loss_series = self._series[self._loss_metric_name]
             finite_loss_values = [value for value in loss_series if math.isfinite(value)]
             twist_fill_level = min(finite_loss_values) if finite_loss_values else 0.0
+            twist_ceiling = max(finite_loss_values) if finite_loss_values else 0.0
+        twist_active_series = [
+            twist_ceiling if is_active else math.nan
+            for is_active in self._twist_active_flags
+        ]
         self._twist_curve.setFillLevel(twist_fill_level)
-        self._twist_curve.setData(self._times, self._twist_active_loss_series)
+        self._twist_curve.setData(self._times, twist_active_series)
 
 
 class EpisodeMetricsTabsWidget(QWidget):

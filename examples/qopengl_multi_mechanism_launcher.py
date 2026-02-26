@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import os
 import sys
 from dataclasses import dataclass
@@ -13,6 +14,7 @@ from gamepad_web_panel import GamepadWebPanelController
 from jaxlie import SE3, SO2, SO3
 from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QCloseEvent, QTextCursor
+from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
@@ -162,6 +164,7 @@ def _build_session_widget(
     core: SimulationCore,
     driver: QtSimulationDriver,
     metric_providers: list[MetricProvider],
+    loss_formula_text: str,
 ) -> QWidget:
     container = QWidget()
     layout = QVBoxLayout(container)
@@ -183,9 +186,17 @@ def _build_session_widget(
         window_seconds=METRIC_WINDOW_SECONDS,
         parent=container,
     )
+    metrics_panel = QWidget(container)
+    metrics_layout = QVBoxLayout(metrics_panel)
+    metrics_layout.setContentsMargins(0, 0, 0, 0)
+    metrics_layout.setSpacing(4)
+
+    formula_widget = _build_formula_widget(loss_formula_text, metrics_panel)
+    metrics_layout.addWidget(formula_widget)
+    metrics_layout.addWidget(metric_tabs_widget, 1)
 
     splitter.addWidget(opengl_widget)
-    splitter.addWidget(metric_tabs_widget)
+    splitter.addWidget(metrics_panel)
     splitter.setStretchFactor(0, 3)
     splitter.setStretchFactor(1, 1)
     splitter.setSizes([750, 250])
@@ -195,6 +206,78 @@ def _build_session_widget(
 
     layout.addWidget(splitter)
     return container
+
+
+def _build_formula_widget(formula_text: str, parent: QWidget) -> QWidget:
+    formula_view = QWebEngineView(parent)
+    formula_view.setMinimumHeight(84)
+    formula_view.setMaximumHeight(120)
+    escaped = html.escape(formula_text)
+    formula_view.setHtml(
+        f"""
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <script>
+      window.MathJax = {{
+        tex: {{
+          inlineMath: [["\\\\(", "\\\\)"]],
+          displayMath: [["\\\\[", "\\\\]"]],
+        }},
+        svg: {{
+          fontCache: "global",
+        }},
+      }};
+    </script>
+    <script
+      id="MathJax-script"
+      async
+      src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"
+    ></script>
+    <style>
+      :root {{
+        color-scheme: light dark;
+        --fg: #1f2937;
+      }}
+      @media (prefers-color-scheme: dark) {{
+        :root {{
+          --fg: #e5e7eb;
+        }}
+      }}
+      html, body {{
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+      }}
+      body {{
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }}
+      .formula {{
+        width: 100%;
+        height: 100%;
+        color: var(--fg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        font-size: 18px;
+        font-family: "Times New Roman", serif;
+        white-space: normal;
+      }}
+    </style>
+  </head>
+  <body>
+    <div class="formula">\\[{escaped}\\]</div>
+  </body>
+</html>
+""",
+    )
+    return formula_view
 
 
 def _build_se3so23_stewart_session(twist_input: TwistInput) -> MechanismSession:
@@ -261,7 +344,12 @@ def _build_se3so23_stewart_session(twist_input: TwistInput) -> MechanismSession:
     providers = [
         MetricProvider("loss", lambda p: dimension.loss_func(p.x)),
     ]
-    widget = _build_session_widget(core, driver, providers)
+    widget = _build_session_widget(
+        core,
+        driver,
+        providers,
+        "f_{\\mathrm{SE}(3)\\times\\mathrm{SO}(2)^3 \\text{ Stewart}}(\\mathrm{x}) = -\\log\\det{\\left[\\left(\\frac{\\mathrm{D} \\mathrm{q}}{\\mathrm{D} \\mathrm{x}}\\right)^\\top \\left(\\frac{\\mathrm{D} \\mathrm{q}}{\\mathrm{D} \\mathrm{x}}\\right) \\right]}",
+    )
     return MechanismSession(core=core, widget=widget, driver=driver)
 
 
@@ -319,7 +407,12 @@ def _build_se3so22_stewart_session(twist_input: TwistInput) -> MechanismSession:
     providers = [
         MetricProvider("loss", lambda p: dimension.loss_func(p.x)),
     ]
-    widget = _build_session_widget(core, driver, providers)
+    widget = _build_session_widget(
+        core,
+        driver,
+        providers,
+        "f_{\\mathrm{SE}(3)\\times\\mathrm{SO}(2)^2 \\text{ Stewart}}(\\mathrm{x}) = -\\log\\det{\\left[\\left(\\frac{\\mathrm{D} \\mathrm{q}}{\\mathrm{D} \\mathrm{x}}\\right)^\\top \\left(\\frac{\\mathrm{D} \\mathrm{q}}{\\mathrm{D} \\mathrm{x}}\\right) \\right]}",
+    )
     return MechanismSession(core=core, widget=widget, driver=driver)
 
 
@@ -380,7 +473,12 @@ def _build_se3r3_stewart_session(twist_input: TwistInput) -> MechanismSession:
     providers = [
         MetricProvider("loss", lambda p: dimension.loss(p.x, SE3R3_JOINT_LIMIT_FACTOR)),
     ]
-    widget = _build_session_widget(core, driver, providers)
+    widget = _build_session_widget(
+        core,
+        driver,
+        providers,
+        "f_{\\mathrm{SE}(3)\\times\\mathbb{R}^3 \\text{ Stewart}}(\\mathrm{x}) = -\\log\\det{\\left[\\left(\\frac{\\mathrm{D}\\,\\mathrm{q}}{\\mathrm{D}\\,\\mathrm{x}}\\right)\\left(\\frac{\\mathrm{D}\\,\\mathrm{q}}{\\mathrm{D}\\,\\mathrm{x}}\\right)^\\top\\right]} + \\lambda\\sum_{i=1}^{3}\\left[-\\log\\left(\\mathrm{r}_i-\\mathrm{r}_i^{\\min}\\right)-\\log\\left(\\mathrm{r}_i^{\\max}-\\mathrm{r}_i\\right)\\right]",
+    )
     return MechanismSession(core=core, widget=widget, driver=driver)
 
 
@@ -421,7 +519,12 @@ def _build_sr_platform_basic_session(twist_input: TwistInput) -> MechanismSessio
     providers = [
         MetricProvider("loss", lambda p: dimension.loss(p.x)),
     ]
-    widget = _build_session_widget(core, driver, providers)
+    widget = _build_session_widget(
+        core,
+        driver,
+        providers,
+        "f_\\text{3-PPPSR}(x) = -\\log\\det{\\left[\\left(\\frac{\\mathrm{D} \\mathrm{q}}{\\mathrm{D} \\mathrm{x}}\\right)^\\top \\left(\\frac{\\mathrm{D} \\mathrm{q}}{\\mathrm{D} \\mathrm{x}}\\right) \\right]}",
+    )
     return MechanismSession(core=core, widget=widget, driver=driver)
 
 
@@ -494,7 +597,12 @@ def _build_sr_platform_rrr_serial_session(
     providers = [
         MetricProvider("loss", lambda p: dimension.loss_jitted(p.x, p.q)),
     ]
-    widget = _build_session_widget(core, driver, providers)
+    widget = _build_session_widget(
+        core,
+        driver,
+        providers,
+        "f_\\text{3-RRRSR}(x, q) = \\kappa\\left(\\left[\\frac{\\mathrm{D} \\Phi}{\\mathrm{D} \\mathrm{q}}\\right]^\\dagger \\frac{\\mathrm{D} \\Phi}{\\mathrm{D} \\mathrm{x}}\\right)",
+    )
     return MechanismSession(core=core, widget=widget, driver=driver)
 
 
@@ -540,7 +648,12 @@ def _build_se3so3_5pss_4pss_session(twist_input: TwistInput) -> MechanismSession
     providers = [
         MetricProvider("loss", lambda p: dimension.loss(p.x, p.q)),
     ]
-    widget = _build_session_widget(core, driver, providers)
+    widget = _build_session_widget(
+        core,
+        driver,
+        providers,
+        "f_{5\\mathrm{PSS}\\text{-}\\mathrm{S}\\text{-}4\\mathrm{PSS}}(\\mathrm{x},\\mathrm{q}) = \\kappa\\left(\\frac{\\mathrm{D}\\,\\Phi(\\mathrm{x},\\mathrm{q})}{\\mathrm{D}\\,\\mathrm{q}}\\right) + \\kappa\\left(\\frac{\\mathrm{D}\\,\\Phi(\\mathrm{x},\\mathrm{q})}{\\mathrm{D}\\,\\mathrm{x}}\\right)",
+    )
     return MechanismSession(core=core, widget=widget, driver=driver)
 
 
