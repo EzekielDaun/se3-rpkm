@@ -10,8 +10,9 @@
     version = "0.0.1"
 
 [project.optional-dependencies]
-    dev      = ["pdoc", "pyqtgraph", "pyside6"]
-    examples = ["iceoryx2==0.8.0", "mujoco-mjx>=3.4.0,<4.0.0"]
+    dev         = ["pdoc"]
+    examples    = ["iceoryx2==0.8.0", "mujoco-mjx>=3.4.0,<4.0.0"]
+    examples-qt = ["pyqtgraph", "pyside6"]
 
 [build-system]
     build-backend = "uv_build"
@@ -19,14 +20,16 @@
 
 [tool.pixi.workspace]
     channels  = ["conda-forge"]
-    platforms = ["linux-64", "osx-arm64", "win-64"]
+    platforms = ["linux-64", "linux-aarch64", "osx-arm64", "win-64"]
 
 [tool.pixi.pypi-dependencies]
     se3-rpkm = { path = ".", editable = true }
 
 [tool.pixi.environments]
-    dev      = { features = ["dev", "examples"] }
-    examples = { features = ["examples"] }
+    dev         = { features = ["dev", "examples"] }
+    dev-desktop = { features = ["dev", "examples", "examples-qt"] }
+    examples    = { features = ["examples"] }
+    examples-qt = { features = ["examples", "examples-qt"] }
 
 [tool.pixi.feature.examples.dependencies]
     rust = ">=1.81"
@@ -42,9 +45,6 @@
     se3so23-sr-platform-rrr-serial       = "python examples/se3so23_sr_platform_rrr_serial.py"
     se3so23-stewart                      = "python examples/se3so23_stewart.py"
     se3so3-5pss-s-4pss                   = "python examples/se3so3_5pss_s_4pss.py"
-    # MuJoCo examples with QOpenGL rendering
-    se3so23-stewart-qopengl          = "python examples/se3so23_stewart_qopengl.py"
-    qopengl-multi-mechanism-launcher = "python examples/qopengl_multi_mechanism_launcher.py"
 
 [tool.pixi.feature.examples.target.osx-arm64.tasks] # MacOS needs to use mjpython for MuJoCo examples
     se3r3-stewart                        = "mjpython examples/se3r3_stewart.py"
@@ -53,12 +53,16 @@
     se3so23-sr-platform-rrr-serial       = "mjpython examples/se3so23_sr_platform_rrr_serial.py"
     se3so23-stewart                      = "mjpython examples/se3so23_stewart.py"
     se3so3-5pss-s-4pss                   = "mjpython examples/se3so3_5pss_s_4pss.py"
-    # MuJoCo examples with QOpenGL rendering
+
+[tool.pixi.feature.examples-qt]
+    platforms = ["linux-64", "osx-arm64", "win-64"]
+
+[tool.pixi.feature.examples-qt.tasks]
     qopengl-multi-mechanism-launcher = "python examples/qopengl_multi_mechanism_launcher.py"
 
 [tool.pixi.feature.dev.dependencies]
     nodejs = "*" # pdoc needs this to precompile search index
 
 [tool.pixi.feature.dev.tasks]
-    docs       = "PDOC_ALLOW_EXEC=1 pixi run pdoc se3_rpkm -d google --math -o ./docs --no-show-source"
-    docs-serve = "PDOC_ALLOW_EXEC=1 pixi run pdoc se3_rpkm -d google --math"
+    docs       = "PDOC_ALLOW_EXEC=1 pdoc se3_rpkm -d google --math -o ./docs --no-show-source"
+    docs-serve = "PDOC_ALLOW_EXEC=1 pdoc se3_rpkm -d google --math"
